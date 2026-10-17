@@ -13,32 +13,30 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import i18n
 import lotto_core as core
 import lotto_data as data
 import lotto_update as upd
+from i18n import t
 
-APP_TITLE = "Генератор чисел — Lotto Max и Lotto 6/49"
 
-PERIODS = {
-    "Всё время": None,
-    "Последние 10 лет": 3653,
-    "Последние 5 лет": 1826,
-    "Последний год": 365,
-    "Последние 100 тиражей": "n100",
-    "Последние 50 тиражей": "n50",
-}
-PERIOD_MAX50 = "С 14.05.2019 (Lotto Max 1–50 и 1–52)"
-PERIOD_MAX52 = "С 14.04.2026 (новые правила, 1–52)"
+def app_title() -> str:
+    return t("app.title")
+
+
+# Периоды: код -> дни назад / «последние N» / с даты. Названия — period.<код>.
+PERIODS = {"all": None, "y10": 3653, "y5": 1826, "y1": 365, "n100": "n100", "n50": "n50",
+           "max50": "max50", "max52": "max52"}
+MAX_ONLY_PERIODS = ("max50", "max52")
+# Ширина строки тиража на главной панели, в знаках: самая длинная —
+# французская «Lotto Max ven 16/10/2026:  … compl. 52» (59 знаков).
+BOARD_WIDTH = 62
 
 
 # Какие розыгрыши учитывать. Дополнительные — это MaxMillions (по 1 000 000 $)
 # и с 14.04.2026 MaxPlus (от 100 000 $) у Lotto Max: в файле BCLC это строки
-# того же тиража с номером последовательности больше нуля.
-KINDS = {
-    "Только основные": "main",
-    "Основные + MaxMillions/MaxPlus": "all",
-    "Только MaxMillions/MaxPlus": "extra",
-}
+# того же тиража с номером последовательности больше нуля. Названия — kind.<код>.
+KINDS = ("main", "all", "extra")
 SELF_TEST = os.environ.get("LOTTO_SELFTEST") == "1"
 CHECK_EVERY_MS = 10 * 60 * 1000   # раз в 10 минут смотрим, не пора ли обновиться
 
@@ -183,14 +181,15 @@ def heat_color(t: float) -> str:
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title(APP_TITLE)
+        settings = data.load_settings()
+        i18n.set_lang(settings.get("lang", i18n.DEFAULT))
+        self.title(app_title())
         self.geometry("1400x880")
         self.minsize(1240, 780)
 
         self.all_draws: dict[str, list[core.Draw]] = {}
         self.extra_draws: dict[str, list[core.Draw]] = {}
         self._updating = False
-        settings = data.load_settings()
         self.sources: dict[str, Path | None] = {}
         self.stats: core.Stats | None = None
         self.fixed: set[int] = set()
@@ -199,21 +198,20 @@ class App(tk.Tk):
         self.excluded: set[int] = set()
 
         self.game_var = tk.StringVar(value=core.LOTTO_MAX.title)
-        self.period_var = tk.StringVar(value="Всё время")
+        self.period_code = "all"
+        self.kind_code = "main"
         self.strategy_var = tk.StringVar(value="hot")
         self.tickets_var = tk.IntVar(value=10)
         self.strength_var = tk.DoubleVar(value=1.0)
-        self.kind_var = tk.StringVar(value="Только основные")
         self.avoid_popular_var = tk.BooleanVar(value=settings.get("avoid_popular", True))
         self.limit_var = tk.StringVar(value=f"{data.weekly_limit():g}")
-        province = settings.get("province")
-        self.province_var = tk.StringVar(
-            value=province if province in data.PROVINCES else data.DEFAULT_PROVINCE)
+        self.province_code = data.province_code(settings.get("province"))
         self.status_var = tk.StringVar()
 
         self._build()
         self.load_all()
         if not SELF_TEST:
+            self.after(300, self.show_disclaimer_once)
             self.after(1500, self.auto_update_tick)
             self.after(6000, lambda: self.on_app_update(quiet=True))
 
@@ -237,30 +235,29 @@ class App(tk.Tk):
 
         top = ttk.Frame(self, padding=(12, 10, 12, 4))
         top.pack(fill="x")
-        ttk.Label(top, text="Лотерея:").pack(side="left")
+        ttk.Label(top, text=t("top.game")).pack(side="left")
         game_box = ttk.Combobox(top, textvariable=self.game_var, state="readonly", width=14,
                                 values=[g.title for g in core.GAMES.values()])
         game_box.pack(side="left", padx=(4, 16))
         game_box.bind("<<ComboboxSelected>>", lambda e: self.on_game_change())
 
-        ttk.Label(top, text="Период:").pack(side="left")
-        self.period_box = ttk.Combobox(top, textvariable=self.period_var, state="readonly",
-                                       width=28)
+        ttk.Label(top, text=t("top.period")).pack(side="left")
+        self.period_box = ttk.Combobox(top, state="readonly", width=34)
         self.period_box.pack(side="left", padx=(4, 16))
-        self.period_box.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        self.period_box.bind("<<ComboboxSelected>>", lambda e: self.on_period_pick())
 
-        ttk.Label(top, text="Розыгрыши:").pack(side="left")
-        self.kind_box = ttk.Combobox(top, textvariable=self.kind_var, state="readonly",
-                                     width=22, values=list(KINDS))
+        ttk.Label(top, text=t("top.kind")).pack(side="left")
+        self.kind_box = ttk.Combobox(top, state="readonly", width=28,
+                                     values=[t(f"kind.{k}") for k in KINDS])
         self.kind_box.pack(side="left", padx=(4, 16))
-        self.kind_box.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        self.kind_box.bind("<<ComboboxSelected>>", lambda e: self.on_kind_pick())
 
         # Служебные кнопки — в шапке справа, чтобы не теснили выбор лотереи.
-        ttk.Button(head, text="⬆ Обновить программу",
+        ttk.Button(head, text=t("btn.update_app"),
                    command=lambda: self.on_app_update(quiet=False)).pack(side="right")
-        ttk.Button(head, text="Загрузить CSV…", command=self.on_import).pack(side="right",
-                                                                           padx=6)
-        ttk.Button(head, text="↻ Обновить тиражи", command=self.on_update).pack(side="right")
+        ttk.Button(head, text=t("btn.import_csv"), command=self.on_import).pack(side="right",
+                                                                               padx=6)
+        ttk.Button(head, text=t("btn.update_draws"), command=self.on_update).pack(side="right")
 
         self.info_var = tk.StringVar()
         autowrap(ttk.Label(self, textvariable=self.info_var, padding=(12, 0),
@@ -269,7 +266,7 @@ class App(tk.Tk):
                            style="Gold.TLabel")).pack(fill="x")
 
         # Главная панель: последний тираж каждой игры и что по нему у моих билетов.
-        board = ttk.LabelFrame(self, text="  Последние тиражи и ваши билеты  ",
+        board = ttk.LabelFrame(self, text=t("board.title"),
                                padding=(12, 6))
         board.pack(fill="x", padx=12, pady=(4, 0))
         self.board_vars: dict[str, tuple[tk.StringVar, tk.StringVar]] = {}
@@ -278,7 +275,7 @@ class App(tk.Tk):
             row.pack(fill="x", pady=2)
             nums, mine = tk.StringVar(), tk.StringVar()
             ttk.Label(row, textvariable=nums, font=("Menlo", 15, "bold"),
-                      width=58).pack(side="left")
+                      width=BOARD_WIDTH).pack(side="left")
             autowrap(ttk.Label(row, textvariable=mine, font=("Helvetica", 13),
                                foreground=GOLD_LIGHT)).pack(side="left", padx=10, fill="x",
                                                             expand=True)
@@ -290,11 +287,9 @@ class App(tk.Tk):
         # --- левая часть: шары
         left = ttk.Frame(body)
         left.pack(side="left", fill="y")
-        ttk.Label(left, text="Частота каждого числа",
+        ttk.Label(left, text=t("left.title"),
                   font=("Helvetica", 14, "bold")).pack(anchor="w")
-        ttk.Label(left, text="Красное — выпадало чаще, синее — реже.\n"
-                             "Щелчок: закрепить (зелёное кольцо) → исключить "
-                             "(серое) → обычное.",
+        ttk.Label(left, text=t("left.hint"), wraplength=410,
                   foreground=ON_FELT_MUTED).pack(anchor="w", pady=(2, 6))
         self.canvas = tk.Canvas(left, width=420, height=450, highlightthickness=0,
                                 background=FELT)
@@ -303,69 +298,75 @@ class App(tk.Tk):
         self.sel_var = tk.StringVar()
         ttk.Label(left, textvariable=self.sel_var, wraplength=410,
                   style="Gold.TLabel").pack(anchor="w", pady=4)
-        ttk.Button(left, text="Сбросить закреплённые и исключённые",
+        ttk.Button(left, text=t("left.reset"),
                    command=self.clear_marks).pack(anchor="w")
 
         # --- правая часть: вкладки
         nb = ttk.Notebook(body)
+        self.nb = nb
         nb.pack(side="left", fill="both", expand=True, padx=(16, 0))
+        nb.bind("<<NotebookTabChanged>>", lambda e: self._redraw_tab())
         self._build_generator(nb)
         self._build_my_tickets(nb)
         self._build_table(nb)
         self._build_history(nb)
         self._build_backtest(nb)
         self._build_honest(nb)
+        self._build_about(nb)
+        self._build_lang(nb)
 
-        ttk.Label(self, padding=(12, 0, 12, 8), foreground=GOLD_LIGHT,
-                  text="Каждый тираж независим: прошлые частоты не повышают шанс выигрыша. "
-                       "Играйте только на те деньги, которые не жалко потерять.").pack(fill="x")
+        autowrap(ttk.Label(self, padding=(12, 0, 12, 8), foreground=GOLD_LIGHT,
+                           text=t("footer"))).pack(fill="x")
 
     def _build_generator(self, nb: ttk.Notebook) -> None:
         sf = ScrollFrame(nb)
         self.gen_scroll = sf
-        nb.add(sf, text="Генератор")
+        nb.add(sf, text=t("tab.gen"))
         f = sf.inner
         style = ttk.Style(self)
         style.configure("Big.TButton", font=("Helvetica", 16, "bold"), padding=(14, 10))
 
         big = ttk.Frame(f)
         big.pack(fill="x", pady=(0, 10))
-        ttk.Button(big, text="🎲  Сгенерировать 10 вариантов", style="Big.TButton",
+        ttk.Button(big, text=t("gen.btn10"), style="Big.TButton",
                    command=self.on_generate_10).pack(side="left")
-        ttk.Button(big, text="🛒  Открыть сайт для покупки", style="Red.TButton",
+        ttk.Button(big, text=t("gen.shop"), style="Red.TButton",
                    command=self.on_open_shop).pack(side="left", padx=10)
 
         prov = ttk.Frame(f)
         prov.pack(fill="x", pady=(0, 10))
-        ttk.Label(prov, text="Где покупаете (провинция):").pack(side="left")
-        prov_box = ttk.Combobox(prov, textvariable=self.province_var, state="readonly",
-                                width=36, values=list(data.PROVINCES))
+        ttk.Label(prov, text=t("gen.province")).pack(side="left")
+        codes = list(data.PROVINCES)
+        prov_box = ttk.Combobox(prov, state="readonly", width=40,
+                                values=[t(f"prov.{c}") for c in codes])
+        prov_box.current(codes.index(self.province_code))
         prov_box.pack(side="left", padx=6)
-        prov_box.bind("<<ComboboxSelected>>",
-                      lambda e: data.save_settings(province=self.province_var.get()))
+
+        def pick_province(_e=None):
+            self.province_code = codes[prov_box.current()]
+            data.save_settings(province=self.province_code)
+        prov_box.bind("<<ComboboxSelected>>", pick_province)
 
         ttk.Checkbutton(
             f, variable=self.avoid_popular_var,
             command=lambda: data.save_settings(avoid_popular=self.avoid_popular_var.get()),
-            text="Избегать комбинаций, которые часто выбирают люди").pack(anchor="w")
+            text=t("gen.avoid")).pack(anchor="w")
         autowrap(ttk.Label(f, style="Muted.TLabel", padding=(26, 0, 0, 8),
-                           text="Дни рождения 1–31, ряды подряд, «лесенки», одинаковые "
-                                "последние цифры. Шанс выиграть тот же, но джекпот "
-                                "реже придётся делить.")).pack(fill="x")
-        ttk.Label(f, text="Как выбирать числа:", font=("Helvetica", 13, "bold")).pack(anchor="w")
-        for key, label in core.STRATEGIES.items():
-            ttk.Radiobutton(f, text=label, value=key,
+                           text=t("gen.avoid_hint"))).pack(fill="x")
+        ttk.Label(f, text=t("gen.how"), font=("Helvetica", 13, "bold")).pack(anchor="w")
+        for key in core.STRATEGIES:
+            ttk.Radiobutton(f, text=core.strategy_name(key), value=key,
                             variable=self.strategy_var).pack(anchor="w", pady=1)
 
         row = ttk.Frame(f)
         row.pack(anchor="w", pady=(10, 4))
-        ttk.Label(row, text="Сколько билетов:").pack(side="left")
+        ttk.Label(row, text=t("gen.count")).pack(side="left")
         ttk.Spinbox(row, from_=1, to=50, textvariable=self.tickets_var,
                     width=5).pack(side="left", padx=6)
 
         row2 = ttk.Frame(f)
         row2.pack(anchor="w", pady=4)
-        ttk.Label(row2, text="Сила перекоса к частым/редким:").pack(side="left")
+        ttk.Label(row2, text=t("gen.strength")).pack(side="left")
         ttk.Scale(row2, from_=0.0, to=3.0, variable=self.strength_var,
                   length=180).pack(side="left", padx=6)
         self.strength_lbl = ttk.Label(row2, width=4)
@@ -376,13 +377,12 @@ class App(tk.Tk):
 
         btns = ttk.Frame(f)
         btns.pack(anchor="w", pady=(8, 6))
-        ttk.Button(btns, text="Сгенерировать столько, сколько указано",
+        ttk.Button(btns, text=t("gen.btn_n"),
                    command=self.on_generate).pack(side="left")
-        ttk.Button(btns, text="Копировать", command=self.on_copy).pack(side="left", padx=6)
+        ttk.Button(btns, text=t("gen.copy"), command=self.on_copy).pack(side="left", padx=6)
 
         autowrap(ttk.Label(f, foreground=ON_FELT_MUTED,
-                           text="Щёлкните по строке, чтобы поставить галочку ☑ у купленных "
-                                "вариантов, затем «Сохранить купленные».")).pack(fill="x")
+                           text=t("gen.click_hint"))).pack(fill="x")
         style.configure("Big.Treeview", font=("Menlo", 16), rowheight=32)
         style.configure("Big.Treeview.Heading", font=("Helvetica", 12, "bold"))
         box = ttk.Frame(f)
@@ -390,10 +390,10 @@ class App(tk.Tk):
         self.gen_tree = ttk.Treeview(box, columns=("mark", "n", "nums", "hist"),
                                      show="headings", style="Big.Treeview",
                                      selectmode="none", height=10)
-        for c, t, w, a in (("mark", "Куплен", 80, "center"), ("n", "№", 50, "center"),
-                           ("nums", "Числа", 330, "w"),
-                           ("hist", "В истории совпало бы", 420, "w")):
-            self.gen_tree.heading(c, text=t)
+        for c, key, w, a in (("mark", "col.bought_mark", 80, "center"),
+                             ("n", "col.n", 50, "center"), ("nums", "col.nums", 330, "w"),
+                             ("hist", "col.hist", 420, "w")):
+            self.gen_tree.heading(c, text=t(key))
             self.gen_tree.column(c, width=w, anchor=a, stretch=(c == "hist"))
         sb = ttk.Scrollbar(box, orient="vertical", command=self.gen_tree.yview)
         self.gen_tree.configure(yscrollcommand=sb.set)
@@ -403,77 +403,76 @@ class App(tk.Tk):
 
         save = ttk.Frame(f)
         save.pack(fill="x", pady=(6, 0))
-        ttk.Button(save, text="✅  Сохранить купленные", style="Green.TButton",
+        ttk.Button(save, text=t("gen.save"), style="Green.TButton",
                    command=self.on_save_bought).pack(side="left")
-        ttk.Button(save, text="Отметить все", command=self.on_mark_all).pack(side="left",
-                                                                              padx=10)
+        ttk.Button(save, text=t("gen.mark_all"), command=self.on_mark_all).pack(side="left",
+                                                                                 padx=10)
         self.bought_info = tk.StringVar()
         autowrap(ttk.Label(f, textvariable=self.bought_info, foreground=GOLD_LIGHT)).pack(
             fill="x", pady=(6, 0))
 
     def _build_my_tickets(self, nb: ttk.Notebook) -> None:
         f = ttk.Frame(nb, padding=8)
-        nb.add(f, text="Мои билеты")
+        nb.add(f, text=t("tab.mine"))
         self.my_summary = tk.StringVar()
         ttk.Label(f, textvariable=self.my_summary,
                   font=("Helvetica", 13, "bold")).pack(anchor="w", pady=(0, 6))
-        box = ttk.Frame(f)
-        box.pack(fill="both", expand=True)
+        box = ttk.Frame(f)                 # таблица — последней, на оставшееся место
         cols = ("game", "bought", "draw", "nums", "cost", "won", "result")
-        self.my_tree = ttk.Treeview(box, columns=cols, show="headings",
+        self.my_tree = ttk.Treeview(box, columns=cols, show="headings", height=5,
                                     style="Big.Treeview", selectmode="browse")
-        for c, t, w in (("game", "Лотерея", 100), ("bought", "Куплен", 105),
-                        ("draw", "Тираж", 110), ("nums", "Числа", 290),
-                        ("cost", "Цена", 60), ("won", "Выиграно", 90),
-                        ("result", "Результат", 330)):
-            self.my_tree.heading(c, text=t)
+        for c, w in (("game", 100), ("bought", 105), ("draw", 110), ("nums", 290),
+                     ("cost", 60), ("won", 90), ("result", 330)):
+            self.my_tree.heading(c, text=t(f"col.{c}"))
             self.my_tree.column(c, width=w, minwidth=w, anchor="w", stretch=(c == "result"))
         # Самое важное — первым: числа, тираж, результат; остальное правее.
         self.my_tree["displaycolumns"] = ("nums", "draw", "result", "won", "cost",
                                           "game", "bought")
         self.my_tree.tag_configure("win", background="#ffe9a3")
         sb = ttk.Scrollbar(box, orient="vertical", command=self.my_tree.yview)
-        self.my_tree.configure(yscrollcommand=sb.set)
+        # «Лотерея» и «Куплен» не помещаются по ширине — до них прокрутка вбок.
+        self.my_xscroll = ttk.Scrollbar(box, orient="horizontal", command=self.my_tree.xview)
+        self.my_tree.configure(yscrollcommand=sb.set, xscrollcommand=self.my_xscroll.set)
+        self.my_xscroll.pack(side="bottom", fill="x")
         self.my_tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="left", fill="y")
-        btns = ttk.Frame(f)
-        btns.pack(fill="x", pady=(6, 0))
+        # Низ вкладки крепится к нижнему краю снизу вверх: пояснение, деньги,
+        # кнопки. Тогда при длинном тексте сжимается таблица, а не пропадают кнопки.
+        autowrap(ttk.Label(f, foreground=ON_FELT_MUTED,
+                           text=t("mine.note"))).pack(side="bottom", fill="x", pady=(6, 0))
+        self.money_var = tk.StringVar()
+        autowrap(ttk.Label(f, textvariable=self.money_var, font=("Helvetica", 13, "bold"),
+                           foreground=GOLD_LIGHT)).pack(side="bottom", fill="x", pady=(8, 0))
         btns2 = ttk.Frame(f)
-        btns2.pack(fill="x", pady=(6, 0))
-        ttk.Button(btns, text="Добавить билет вручную…",
+        btns2.pack(side="bottom", fill="x", pady=(6, 0))
+        btns = ttk.Frame(f)
+        btns.pack(side="bottom", fill="x", pady=(6, 0))
+        self.my_buttons = (btns, btns2)
+        ttk.Button(btns, text=t("mine.add"),
                    command=self.on_add_manual).pack(side="left")
-        ttk.Button(btns, text="Удалить выбранный",
+        ttk.Button(btns, text=t("mine.delete"),
                    command=self.on_delete_ticket).pack(side="left", padx=8)
-        ttk.Button(btns, text="Записать выигрыш…",
+        ttk.Button(btns, text=t("mine.set_won"),
                    command=self.on_set_won).pack(side="left")
-        ttk.Button(btns2, text="Сохранить файл… (для iPhone)",
+        ttk.Button(btns2, text=t("mine.export"),
                    command=self.on_export).pack(side="left")
-        ttk.Button(btns2, text="Загрузить файл…",
+        ttk.Button(btns2, text=t("mine.import"),
                    command=self.on_import_tickets).pack(side="left", padx=8)
-        ttk.Label(btns2, text="   Лимит в неделю, $ (0 — без лимита):").pack(side="left")
+        ttk.Label(btns2, text=t("mine.limit")).pack(side="left")
         lim = ttk.Spinbox(btns2, from_=0, to=10000, increment=5, width=7,
                           textvariable=self.limit_var, command=self.on_limit_change)
         lim.pack(side="left", padx=4)
         lim.bind("<FocusOut>", lambda e: self.on_limit_change())
         lim.bind("<Return>", lambda e: self.on_limit_change())
-        self.money_var = tk.StringVar()
-        autowrap(ttk.Label(f, textvariable=self.money_var, font=("Helvetica", 13, "bold"),
-                           foreground=GOLD_LIGHT)).pack(fill="x", pady=(8, 0))
-        autowrap(ttk.Label(f, foreground=ON_FELT_MUTED,
-                           text="После каждого тиража программа сама сверит ваши билеты. "
-                                "Окончательную сумму выигрыша всегда проверяйте на сайте "
-                                "лотереи или в кассе: здесь видно только, сколько чисел "
-                                "совпало.")).pack(fill="x", pady=(6, 0))
+        box.pack(fill="both", expand=True)
 
     def _build_table(self, nb: ttk.Notebook) -> None:
         f = ttk.Frame(nb, padding=8)
-        nb.add(f, text="Частоты")
+        nb.add(f, text=t("tab.freq"))
         cols = ("num", "count", "share", "since")
         self.tree = ttk.Treeview(f, columns=cols, show="headings")
-        heads = {"num": "Число", "count": "Сколько раз выпало",
-                 "share": "% тиражей", "since": "Тиражей назад"}
         for c in cols:
-            self.tree.heading(c, text=heads[c], command=lambda c=c: self.sort_table(c))
+            self.tree.heading(c, text=t(f"col.{c}"), command=lambda c=c: self.sort_table(c))
             self.tree.column(c, anchor="center", width=130)
         sb = ttk.Scrollbar(f, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=sb.set)
@@ -483,10 +482,10 @@ class App(tk.Tk):
 
     def _build_history(self, nb: ttk.Notebook) -> None:
         f = ttk.Frame(nb, padding=8)
-        nb.add(f, text="Тиражи")
+        nb.add(f, text=t("tab.draws"))
         self.hist = ttk.Treeview(f, columns=("date", "nums", "bonus"), show="headings")
-        for c, t, w in (("date", "Дата", 120), ("nums", "Числа", 300), ("bonus", "Бонус", 80)):
-            self.hist.heading(c, text=t)
+        for c, w in (("date", 120), ("nums", 300), ("bonus", 80)):
+            self.hist.heading(c, text=t(f"col.{c}"))
             self.hist.column(c, anchor="center", width=w)
         sb = ttk.Scrollbar(f, orient="vertical", command=self.hist.yview)
         self.hist.configure(yscrollcommand=sb.set)
@@ -495,29 +494,25 @@ class App(tk.Tk):
 
     def _build_backtest(self, nb: ttk.Notebook) -> None:
         sf = ScrollFrame(nb)
-        nb.add(sf, text="Проверка")
+        nb.add(sf, text=t("tab.test"))
         f = sf.inner
-        autowrap(ttk.Label(f, text=(
-            "Честная проверка способов выбора. Для каждого из последних тиражей "
-            "программа считает частоты ТОЛЬКО по тиражам до него, делает 10 билетов "
-            "каждым способом и смотрит, сколько чисел совпало. Если бы «частые» "
-            "числа помогали, у них совпадало бы больше, чем у случайных."))).pack(fill="x")
+        autowrap(ttk.Label(f, text=t("test.intro"))).pack(fill="x")
         row = ttk.Frame(f)
         row.pack(anchor="w", pady=8)
-        ttk.Label(row, text="Сколько последних тиражей:").pack(side="left")
+        ttk.Label(row, text=t("test.last")).pack(side="left")
         self.bt_last = tk.StringVar(value="300")
         ttk.Combobox(row, textvariable=self.bt_last, state="readonly", width=6,
                      values=["100", "300", "600", "1000"]).pack(side="left", padx=6)
-        self.bt_btn = ttk.Button(row, text="Запустить проверку", command=self.on_backtest)
+        self.bt_btn = ttk.Button(row, text=t("test.run"), command=self.on_backtest)
         self.bt_btn.pack(side="left", padx=6)
         self.bt_prog = ttk.Progressbar(row, length=200, mode="determinate")
         self.bt_prog.pack(side="left", padx=6)
         cols = ("s", "n", "avg", "exp", "h3", "h4")
         self.bt_tree = ttk.Treeview(f, columns=cols, show="headings", height=8)
-        for c, t, w in (("s", "Способ", 300), ("n", "Билетов", 75),
-                        ("avg", "Совпало в ср.", 115), ("exp", "Ожидание", 100),
-                        ("h3", "3 и больше", 95), ("h4", "4 и больше", 95)):
-            self.bt_tree.heading(c, text=t)
+        for c, key, w in (("s", "col.strategy", 300), ("n", "col.tickets", 75),
+                          ("avg", "col.avg", 115), ("exp", "col.exp", 100),
+                          ("h3", "col.h3", 95), ("h4", "col.h4", 95)):
+            self.bt_tree.heading(c, text=t(key))
             self.bt_tree.column(c, width=w, anchor="w" if c == "s" else "center")
         self.bt_tree.pack(fill="x")
         self.bt_verdict = tk.StringVar()
@@ -528,12 +523,12 @@ class App(tk.Tk):
         g = self.game
         draws = self.all_draws.get(g.key, [])
         if len(draws) < 50:
-            messagebox.showinfo(APP_TITLE, "Мало тиражей для проверки.")
+            messagebox.showinfo(app_title(), t("test.few"))
             return
         last = min(int(self.bt_last.get()), len(draws) - 1)
         self.bt_btn.state(["disabled"])
         self.bt_prog.config(maximum=last, value=0)
-        self.bt_verdict.set(f"Проверяю {g.title} на {last} тиражах…")
+        self.bt_verdict.set(t("test.running", game=g.title, n=last))
 
         def prog(i, n):
             if i % 10 == 0 or i == n:
@@ -552,33 +547,96 @@ class App(tk.Tk):
         self.bt_tree.delete(*self.bt_tree.get_children())
         for r in rows:
             self.bt_tree.insert("", "end", values=(
-                core.STRATEGIES[r.strategy], r.tickets, f"{r.avg_matches:.3f}",
-                f"{r.expected_avg:.3f}", r.hits3, r.hits4))
+                core.strategy_name(r.strategy), r.tickets, i18n.num(r.avg_matches, 3),
+                i18n.num(r.expected_avg, 3), r.hits3, r.hits4))
         best = max(rows, key=lambda r: r.avg_matches)
         exp = rows[0].expected_avg
         odd = [r for r in rows if abs(r.z) > 3]
-        text = (f"{g.title}, {last} тиражей. Ожидание у случайного билета — "
-                f"{exp:.3f} совпадения, обычный разброс ±{3 * rows[0].se:.3f}. "
-                f"Лучше всех в этот раз: «{core.STRATEGIES[best.strategy]}» — "
-                f"{best.avg_matches:.3f}. ")
+        text = t("test.head", game=g.title, n=last, exp=i18n.num(exp, 3),
+                 se=i18n.num(3 * rows[0].se, 3), best=core.strategy_name(best.strategy),
+                 avg=i18n.num(best.avg_matches, 3))
         if odd:
-            text += ("Разница у способов " + ", ".join(
-                f"«{core.STRATEGIES[r.strategy]}»" for r in odd)
-                + " больше обычного разброса. Запустите проверку ещё раз: если "
-                "повторится — это стоит изучить, если нет — была случайность.")
+            qa, qb = ("“", "”") if i18n.lang() == "en" else ("«", "»")
+            text += t("test.odd", list=", ".join(f"{qa}{core.strategy_name(r.strategy)}{qb}"
+                                                 for r in odd))
         else:
-            text += ("Все способы в пределах обычного случайного разброса: ни один "
-                     "не угадывает лучше случайного. При новом запуске «лучший» "
-                     "может смениться.")
+            text += t("test.ok")
         self.bt_verdict.set(text)
 
     def _build_honest(self, nb: ttk.Notebook) -> None:
         f = ttk.Frame(nb, padding=12)
-        nb.add(f, text="Шансы")
+        nb.add(f, text=t("tab.odds"))
         self.honest = tk.Text(f, wrap="word", font=("Helvetica", 14), relief="flat",
                               background=CREAM, foreground=INK, padx=14, pady=12,
                               highlightthickness=2, highlightbackground=GOLD_DARK)
         self.honest.pack(fill="both", expand=True)
+
+    def _build_about(self, nb: ttk.Notebook) -> None:
+        sf = ScrollFrame(nb)
+        nb.add(sf, text=t("tab.about"))
+        f = sf.inner
+        ttk.Label(f, text=t("about.title"), style="Title.TLabel").pack(anchor="w")
+        autowrap(ttk.Label(f, text=t("about.body"), font=("Helvetica", 14),
+                           padding=(0, 8, 0, 12))).pack(fill="x")
+        box = ttk.LabelFrame(f, text="  " + t("about.disclaimer_title") + "  ", padding=12)
+        box.pack(fill="x", pady=(4, 12))
+        autowrap(ttk.Label(box, text=t("about.disclaimer"), style="Gold.TLabel",
+                           font=("Helvetica", 14, "bold"))).pack(fill="x")
+        ver = upd.current_version()
+        ttk.Label(f, style="Muted.TLabel",
+                  text=t("about.version", v=ver[:7] if ver else t("about.version_dev"))
+                  ).pack(anchor="w")
+
+    def show_disclaimer_once(self) -> None:
+        """Предупреждение об ответственности — при первом запуске, один раз."""
+        if data.load_settings().get("disclaimer_ok"):
+            return
+        messagebox.showinfo(t("about.disclaimer_title"), t("about.disclaimer"), parent=self)
+        data.save_settings(disclaimer_ok=True)
+
+    def _build_lang(self, nb: ttk.Notebook) -> None:
+        f = ttk.Frame(nb, padding=24)
+        nb.add(f, text=t("lang.tab"))
+        ttk.Label(f, text="Язык / Language / Langue", style="Title.TLabel").pack(anchor="w")
+        autowrap(ttk.Label(f, text=t("lang.note"), style="Muted.TLabel",
+                           padding=(0, 6, 0, 16))).pack(fill="x")
+        for code, flag in (("ru", "🇷🇺"), ("en", "🇬🇧"), ("fr", "🇫🇷")):
+            name = i18n.STRINGS[code]["lang.name"]
+            style = "Green.TButton" if code == i18n.lang() else "Big.TButton"
+            mark = "  ✓" if code == i18n.lang() else ""
+            ttk.Button(f, text=f"{flag}  {name}{mark}", style=style, width=22,
+                       command=lambda c=code: self.set_language(c)).pack(anchor="w", pady=6)
+
+    redraw_fix = True
+
+    def _redraw_tab(self) -> None:
+        """На Mac вкладка, на которую вернулись, иногда остаётся пустой (видно
+        на снимках сборки). Сдвиг вкладок на 1 пиксель и обратно заставляет
+        перерисовать её содержимое."""
+        if not self.redraw_fix:
+            return
+        self.nb.configure(padding=1)
+        self.after(30, lambda: self.nb.winfo_exists() and self.nb.configure(padding=0))
+
+    def set_language(self, code: str) -> None:
+        """Сменить язык: запомнить и перерисовать окно, сохранив выбор и билеты."""
+        if code == i18n.lang():
+            return
+        i18n.set_lang(code)
+        data.save_settings(lang=code)
+        tab = self.nb.index(self.nb.select()) if hasattr(self, "nb") else 0
+        for w in self.winfo_children():
+            w.destroy()
+        self.title(app_title())
+        self._build()
+        self.on_game_change(keep_marks=True)
+        self.fill_my_tickets()
+        if self.generated:
+            self.fill_generated()
+        # На Mac вкладка, выбранная до первой раскладки окна, остаётся пустой
+        # (так было с «🌐 Языком»): сначала раскладка, потом выбор вкладки.
+        self.update_idletasks()
+        self.after_idle(lambda: self.nb.select(tab))
 
     # ------------------------------------------------------------ данные
     @property
@@ -598,34 +656,46 @@ class App(tk.Tk):
         self.on_game_change()
         self.fill_my_tickets()
 
-    def on_game_change(self) -> None:
-        values = list(PERIODS)
-        if self.game.key == "LOTTOMAX":
-            values += [PERIOD_MAX50, PERIOD_MAX52]
-        self.period_box.config(values=values)
-        if self.period_var.get() not in values:
-            self.period_var.set("Всё время")
+    def period_codes(self) -> list[str]:
+        return [c for c in PERIODS
+                if c not in MAX_ONLY_PERIODS or self.game.key == "LOTTOMAX"]
+
+    def on_period_pick(self) -> None:
+        self.period_code = self.period_codes()[self.period_box.current()]
+        self.refresh()
+
+    def on_kind_pick(self) -> None:
+        self.kind_code = KINDS[self.kind_box.current()]
+        self.refresh()
+
+    def on_game_change(self, keep_marks: bool = False) -> None:
+        codes = self.period_codes()
+        if self.period_code not in codes:
+            self.period_code = "all"
+        self.period_box.config(values=[t(f"period.{c}") for c in codes])
+        self.period_box.current(codes.index(self.period_code))
         # У 6/49 дополнительных розыгрышей шарами в файле нет: «миллионный»
         # Gold Ball разыгрывает номер билета, а не числа.
-        if self.extra_draws.get(self.game.key):
-            self.kind_box.config(state="readonly")
-        else:
-            self.kind_var.set("Только основные")
-            self.kind_box.config(state="disabled")
-        self.fixed.clear()
-        self.excluded.clear()
+        if not self.extra_draws.get(self.game.key):
+            self.kind_code = "main"
+        self.kind_box.current(KINDS.index(self.kind_code))
+        self.kind_box.config(state="readonly" if self.extra_draws.get(self.game.key)
+                             else "disabled")
+        if not keep_marks:
+            self.fixed.clear()
+            self.excluded.clear()
         self.refresh()
 
     def selected_draws(self) -> list[core.Draw]:
-        kind = KINDS.get(self.kind_var.get(), "main")
+        kind = self.kind_code
         main = self.all_draws.get(self.game.key, [])
         extra = self.extra_draws.get(self.game.key, [])
         draws = {"main": main, "extra": extra,
                  "all": sorted(main + extra, key=lambda d: d.when)}[kind]
-        p = self.period_var.get()
-        if p == PERIOD_MAX50:
+        p = self.period_code
+        if p == "max50":
             return core.filter_draws(draws, since=core.LOTTO_MAX_50_FROM)
-        if p == PERIOD_MAX52:
+        if p == "max52":
             return core.filter_draws(draws, since=core.LOTTO_MAX_52_FROM)
         v = PERIODS.get(p)
         if v is None:
@@ -641,14 +711,11 @@ class App(tk.Tk):
         all_d = self.all_draws.get(g.key, [])
         if draws:
             src = self.sources.get(g.key)
-            self.info_var.set(
-                f"{g.title}: в выборке {len(draws)} розыгрышей, с {draws[0].when:%d.%m.%Y} "
-                f"по {draws[-1].when:%d.%m.%Y} (в базе основных {len(all_d)}, "
-                f"MaxMillions/MaxPlus {len(self.extra_draws.get(g.key, []))}).")
+            self.info_var.set(t("info.sample", game=g.title, n=len(draws),
+                                d1=i18n.d(draws[0].when), d2=i18n.d(draws[-1].when),
+                                main=len(all_d), extra=len(self.extra_draws.get(g.key, []))))
         else:
-            self.info_var.set(f"{g.title}: в выбранной выборке нет розыгрышей. "
-                              f"Смените период или вид розыгрышей, либо нажмите "
-                              f"«Обновить из интернета».")
+            self.info_var.set(t("info.empty", game=g.title))
         self.show_status()
         self.draw_balls()
         self.fill_table()
@@ -668,15 +735,15 @@ class App(tk.Tk):
         c.delete("all")
         st = self.stats
         if not st or not st.draws:
-            c.create_text(235, 200, text="Нет данных", font=("Helvetica", 16), fill=ON_FELT)
+            c.create_text(210, 200, text=t("left.nodata"), font=("Helvetica", 16), fill=ON_FELT)
             self.sel_var.set("")
             return
         counts = [s.count for s in st.numbers.values()]
         lo, hi = min(counts), max(counts)
         for n, cx, cy, r in self.ball_layout():
             s = st.numbers[n]
-            t = (s.count - lo) / (hi - lo) if hi > lo else 0.5
-            fill = "#8f9a94" if n in self.excluded else heat_color(t)
+            heat = (s.count - lo) / (hi - lo) if hi > lo else 0.5
+            fill = "#8f9a94" if n in self.excluded else heat_color(heat)
             # объёмный шар: тень, сам шар, блик
             c.create_oval(cx - r + 2, cy - r + 4, cx + r + 2, cy + r + 4, fill="#062a17",
                           outline="")
@@ -693,9 +760,9 @@ class App(tk.Tk):
             if n in self.excluded:
                 c.create_line(cx - r + 8, cy - r + 8, cx + r - 8, cy + r - 8,
                               fill="#555", width=2)
-        f = ", ".join(map(str, sorted(self.fixed))) or "нет"
-        x = ", ".join(map(str, sorted(self.excluded))) or "нет"
-        self.sel_var.set(f"Закреплены (войдут в каждый билет): {f}\nИсключены: {x}")
+        f = ", ".join(map(str, sorted(self.fixed))) or t("none")
+        x = ", ".join(map(str, sorted(self.excluded))) or t("none")
+        self.sel_var.set(t("left.sel", f=f, x=x))
 
     def on_ball_click(self, event) -> None:
         if not self.stats:
@@ -709,8 +776,8 @@ class App(tk.Tk):
                     self.excluded.discard(n)
                 else:
                     if len(self.fixed) >= self.game.pick:
-                        messagebox.showinfo(APP_TITLE, f"В билете {self.game.pick} чисел — "
-                                            "больше закрепить нельзя.")
+                        messagebox.showinfo(app_title(), t("left.max_pinned",
+                                                           pick=self.game.pick))
                         return
                     self.fixed.add(n)
                 self.draw_balls()
@@ -733,7 +800,7 @@ class App(tk.Tk):
         for s in sorted(self.stats.numbers.values(), key=getter[key], reverse=rev):
             self.tree.insert("", "end", values=(
                 s.number, s.count, f"{s.share * 100:.1f}%",
-                "не выпадало" if s.draws_since is None else s.draws_since))
+                t("freq.never") if s.draws_since is None else s.draws_since))
 
     def sort_table(self, col: str) -> None:
         key, rev = self._sort
@@ -744,56 +811,42 @@ class App(tk.Tk):
         self.hist.delete(*self.hist.get_children())
         for d in reversed(draws[-300:]):
             self.hist.insert("", "end", values=(
-                d.when.strftime("%d.%m.%Y"), "  ".join(f"{n:2d}" for n in d.numbers),
+                i18n.d(d.when), "  ".join(f"{n:2d}" for n in d.numbers),
                 d.bonus if d.bonus is not None else ""))
 
     def fill_honest(self) -> None:
         st, g = self.stats, self.game
-        t = self.honest
-        t.config(state="normal")
-        t.delete("1.0", "end")
+        box = self.honest
+        box.config(state="normal")
+        box.delete("1.0", "end")
         if not st or not st.draws:
-            t.config(state="disabled")
+            box.config(state="disabled")
             return
         top = st.ranked()[:5]
         low = st.ranked(reverse=False)[:5]
-        verdict = ("Такой разброс — обычное дело для честной случайной лотереи."
-                   if st.p_value >= 0.05 else
-                   "Разброс чуть больше обычного, но при множестве проверок такое "
-                   "тоже случается случайно; на будущие тиражи это не влияет.")
-        t.insert("end",
-                 f"Шанс сорвать главный приз {g.title} одной линией из {g.pick} чисел: 1 к {format(g.odds(date.today()), ',').replace(',', ' ')}.\n"
-                 + ("Сейчас в Lotto Max одна игра за 6 $ — это 4 линии, то есть шанс "
-                    "на игру в 4 раза выше, чем на линию.\n" if g.key == "LOTTOMAX" else "")
-                 + "Это не меняется от того, какие числа вы выберете.\n\n"
-                 f"В выбранном периоде {len(st.draws)} тиражей. Каждое число в среднем "
-                 f"должно было выпасть около {st.expected:.0f} раз.\n"
-                 f"Чаще всех: " + ", ".join(f"{s.number} ({s.count})" for s in top) + "\n"
-                 f"Реже всех: " + ", ".join(f"{s.number} ({s.count})" for s in low) + "\n\n"
-                 f"Проверка «похоже ли это на чистую случайность» (хи-квадрат): "
-                 f"вероятность получить такой разброс случайно ≈ {st.p_value:.0%}.\n"
-                 f"{verdict}\n\n"
-                 "Что это значит простыми словами: у шаров нет памяти. Частые числа "
-                 "не «горячие», а редкие не «должны» выпасть. Генератор выбирает по "
-                 "истории, потому что вам так нравится, — это нормально, но выигрыш "
-                 "от этого не становится вероятнее.\n\n"
-                 + (f"Дополнительные розыгрыши MaxMillions (1 000 000 $) и MaxPlus (от 100 000 $, с 14.04.2026) в базе: "
-                    f"{len(self.extra_draws.get(g.key, []))}. Их можно учесть в частотах "
-                    "через «Розыгрыши» вверху. "
-                    if self.extra_draws.get(g.key) else
-                    "У Lotto 6/49 миллионный розыгрыш (Gold Ball) разыгрывает номер "
-                    "билета, а не шары, поэтому в частотах его нет. ")
-                 + "Суммы джекпотов и число победителей в официальном файле не "
-                 "публикуются, поэтому программа их не анализирует.\n\n"
-                 "Один полезный приём: если все выбирают «популярные» числа (дни "
-                 "рождения 1–31), при выигрыше приз делится на большее число людей. "
-                 "Числа выше 31 выбирают реже.")
-        t.config(state="disabled")
+        odds = format(g.odds(date.today()), ",").replace(",", " " if i18n.lang() != "en" else ",")
+        parts = [
+            t("odds.jackpot", game=g.title, pick=g.pick, odds=odds),
+            t("odds.max4") if g.key == "LOTTOMAX" else "",
+            t("odds.same"),
+            t("odds.period", n=len(st.draws), exp=f"{st.expected:.0f}"),
+            t("odds.top", list=", ".join(f"{s.number} ({s.count})" for s in top)),
+            t("odds.low", list=", ".join(f"{s.number} ({s.count})" for s in low)),
+            t("odds.chi", p=f"{st.p_value:.0%}"),
+            (t("odds.fair") if st.p_value >= 0.05 else t("odds.unusual")) + "\n\n",
+            t("odds.memory"),
+            t("odds.extra", n=len(self.extra_draws.get(g.key, [])))
+            if self.extra_draws.get(g.key) else t("odds.goldball"),
+            t("odds.no_amounts"),
+            t("odds.tip"),
+        ]
+        box.insert("end", "".join(parts))
+        box.config(state="disabled")
 
     # ------------------------------------------------------------ действия
     def on_generate(self) -> None:
         if not self.stats or not self.stats.draws:
-            messagebox.showwarning(APP_TITLE, "Нет данных о тиражах.")
+            messagebox.showwarning(app_title(), t("gen.nodata"))
             return
         try:
             n = max(1, min(50, int(self.tickets_var.get())))
@@ -802,11 +855,10 @@ class App(tk.Tk):
                                     avoid=self.bought_combos(self.game.key),
                                     avoid_popular=self.avoid_popular_var.get())
         except (ValueError, tk.TclError) as e:
-            messagebox.showwarning(APP_TITLE, str(e))
+            messagebox.showwarning(app_title(), str(e))
             return
         if not tickets:
-            messagebox.showinfo(APP_TITLE, "Новых вариантов не нашлось — все подходящие "
-                                "уже куплены. Снимите закрепления или смените способ.")
+            messagebox.showinfo(app_title(), t("gen.none_new"))
             return
         self.generated = tickets
         self.generated_game = self.game.key
@@ -818,13 +870,13 @@ class App(tk.Tk):
         g = core.GAMES[getattr(self, "generated_game", self.game.key)]
         all_d = self.all_draws.get(g.key, [])
         self.gen_tree.delete(*self.gen_tree.get_children())
-        for i, t in enumerate(self.generated):
-            m = core.history_matches(all_d, t)
-            hist = ", ".join(f"{k} из {g.pick}: {v} раз"
+        for i, ticket in enumerate(self.generated):
+            m = core.history_matches(all_d, ticket)
+            hist = ", ".join(t("gen.hist_line", k=k, pick=g.pick, v=v)
                              for k, v in sorted(m.items(), reverse=True))
             self.gen_tree.insert("", "end", iid=str(i), values=(
                 "☑" if i in self.marked else "☐", i + 1,
-                "  ".join(f"{x:2d}" for x in t), hist or "меньше 3 чисел всегда"))
+                "  ".join(f"{x:2d}" for x in ticket), hist or t("gen.hist_none")))
 
     def on_gen_click(self, event) -> None:
         row = self.gen_tree.identify_row(event.y)
@@ -843,8 +895,7 @@ class App(tk.Tk):
 
     def on_save_bought(self) -> None:
         if not self.marked:
-            messagebox.showinfo(APP_TITLE, "Сначала щёлкните по купленным вариантам, "
-                                "чтобы появилась галочка ☑.")
+            messagebox.showinfo(app_title(), t("gen.need_marks"))
             return
         g = core.GAMES[self.generated_game]
         today = date.today()
@@ -853,50 +904,47 @@ class App(tk.Tk):
         try:
             added = data.add_tickets(g.key, chosen, today.isoformat(), draw.isoformat())
         except OSError as e:
-            messagebox.showerror(APP_TITLE, f"Не удалось сохранить: {e}")
+            messagebox.showerror(app_title(), t("gen.save_err", e=e))
             return
-        self.bought_info.set(f"Сохранено {added} билет(ов) на тираж {draw:%d.%m.%Y}. "
-                             f"Они есть во вкладке «Мои билеты» и больше не "
-                             f"будут предлагаться.")
+        self.bought_info.set(t("gen.saved", n=added, d=i18n.d(draw)))
         self.fill_my_tickets()
         if data.over_limit(data.load_tickets(), today):
             m = data.money_summary(data.load_tickets(), today)
-            messagebox.showwarning(APP_TITLE, f"Лимит недели превышен: потрачено "
-                                   f"{m['week']:.2f} $ при лимите {data.weekly_limit():g} $.")
+            messagebox.showwarning(app_title(), t("limit.over", spent=i18n.num(m["week"]),
+                                                  lim=f"{data.weekly_limit():g}"))
 
     def fill_my_tickets(self) -> None:
         self.my_tree.delete(*self.my_tree.get_children())
         self._my_items = data.load_tickets()
         waiting = won = 0
-        for i, t in reversed(list(enumerate(self._my_items))):
-            g = core.GAMES.get(t.get("game"))
+        for i, tk_ in reversed(list(enumerate(self._my_items))):
+            g = core.GAMES.get(tk_.get("game"))
             if g is None:
                 continue
             try:
-                day = date.fromisoformat(t["draw"])
-                bought = date.fromisoformat(t["bought"])
+                day = date.fromisoformat(tk_["draw"])
+                bought = date.fromisoformat(tk_["bought"])
             except (KeyError, ValueError):
                 continue
-            r = core.check_ticket(g, t["numbers"], day, self.all_draws.get(g.key, []),
+            r = core.check_ticket(g, tk_["numbers"], day, self.all_draws.get(g.key, []),
                                   self.extra_draws.get(g.key, []))
             waiting += not r.drawn
             won += bool(r.prize or r.maxmillions)
             self.my_tree.insert("", "end", iid=str(i), tags=("win",) if r.prize else (),
-                                values=(g.title, f"{bought:%d.%m.%Y}", f"{day:%d.%m.%Y}",
-                                        "  ".join(f"{x:2d}" for x in t["numbers"]),
-                                        f"{data.ticket_cost(t):.2f}",
-                                        f"{float(t['won']):.2f}" if t.get("won") else "",
+                                values=(g.title, i18n.d(bought), i18n.d(day),
+                                        "  ".join(f"{x:2d}" for x in tk_["numbers"]),
+                                        i18n.num(data.ticket_cost(tk_)),
+                                        i18n.num(float(tk_["won"])) if tk_.get("won") else "",
                                         r.text(g)))
-        self.my_summary.set(f"Всего билетов: {len(self._my_items)}   ·   ждут тиража: "
-                            f"{waiting}   ·   с призом: {won}")
+        self.my_summary.set(t("mine.summary", n=len(self._my_items), w=waiting, p=won))
         m = data.money_summary(self._my_items, date.today())
         lim = data.weekly_limit()
         net = m["won"] - m["total"]
-        self.money_var.set(
-            f"Потрачено: эта неделя {m['week']:.2f} $"
-            + (f" из {lim:g} $" if lim else "")
-            + f" · этот месяц {m['month']:.2f} $ · всего {m['total']:.2f} $   |   "
-            f"выиграно всего {m['won']:.2f} $   |   итог {net:+.2f} $")
+        self.money_var.set(t(
+            "mine.money", week=i18n.num(m["week"]),
+            of=t("mine.money_of", lim=f"{lim:g}") if lim else "",
+            month=i18n.num(m["month"]), total=i18n.num(m["total"]), won=i18n.num(m["won"]),
+            net=("+" if net >= 0 else "−") + i18n.num(abs(net))))
         self.fill_board()
 
     def fill_board(self) -> None:
@@ -906,34 +954,32 @@ class App(tk.Tk):
             nums_v, mine_v = self.board_vars[g.key]
             mains = self.all_draws.get(g.key, [])
             if not mains:
-                nums_v.set(f"{g.title}: нет данных")
+                nums_v.set(t("board.nodata", game=g.title))
                 mine_v.set("")
                 continue
             last = mains[-1]
-            bonus = f"  бонус {last.bonus}" if last.bonus is not None else ""
-            nums_v.set(f"{g.title:<10} {core.WEEKDAY_RU[last.when.weekday()][:2]} "
-                       f"{last.when:%d.%m.%Y}:  "
+            bonus = "  " + t("board.bonus", b=last.bonus) if last.bonus is not None else ""
+            nums_v.set(f"{g.title:<10} {core.weekday_name(last.when, short=True)} "
+                       f"{i18n.d(last.when)}:  "
                        + " ".join(f"{x:2d}" for x in last.numbers) + bonus)
-            mine = [t for t in items if t.get("game") == g.key
-                    and t.get("draw") == last.when.isoformat()]
-            waiting = sum(1 for t in items if t.get("game") == g.key
-                          and t.get("draw", "") > last.when.isoformat())
+            mine = [x for x in items if x.get("game") == g.key
+                    and x.get("draw") == last.when.isoformat()]
+            waiting = sum(1 for x in items if x.get("game") == g.key
+                          and x.get("draw", "") > last.when.isoformat())
             if not mine:
-                mine_v.set("ваших билетов на этот тираж нет"
-                           + (f" · ждут следующего: {waiting}" if waiting else ""))
+                mine_v.set(t("board.none") + (t("board.waiting", n=waiting) if waiting else ""))
                 continue
-            res = [core.check_ticket(g, t["numbers"], last.when, mains,
-                                     self.extra_draws.get(g.key, [])) for t in mine]
+            res = [core.check_ticket(g, x["numbers"], last.when, mains,
+                                     self.extra_draws.get(g.key, [])) for x in mine]
             best = max(r.matches for r in res)
-            money = sum(1 for r in res if "денежный" in r.prize or r.prize == "ДЖЕКПОТ")
-            free = sum(1 for r in res if r.prize == "бесплатный билет")
+            money = sum(1 for r in res if r.prize in ("cash", "jackpot"))
+            free = sum(1 for r in res if r.prize == "free")
             mm = sum(r.maxmillions for r in res)
-            text = (f"ваших билетов: {len(mine)} · лучший {best} из {g.pick} · "
-                    f"денежных призов: {money} · бесплатных билетов: {free}")
+            text = t("board.summary", n=len(mine), best=best, pick=g.pick, cash=money, free=free)
             if mm:
-                text += f" · MaxMillions/MaxPlus: {mm}!"
+                text += t("board.mm", n=mm)
             if waiting:
-                text += f" · ждут следующего: {waiting}"
+                text += t("board.waiting", n=waiting)
             mine_v.set(text)
 
     # ----------------------------------------------- обновление программы
@@ -942,8 +988,7 @@ class App(tk.Tk):
         bundle = upd.app_bundle()
         if bundle is None:
             if not quiet:
-                messagebox.showinfo(APP_TITLE, "Программа запущена не из сборки — "
-                                    "обновлять нечего.")
+                messagebox.showinfo(app_title(), t("upd.not_frozen"))
             return
 
         def work():
@@ -955,29 +1000,26 @@ class App(tk.Tk):
             self.after(0, lambda: self._after_check(info, err, quiet, bundle))
 
         if not quiet:
-            self.status_var.set("Проверяю новую версию программы на GitHub…")
+            self.status_var.set(t("status.checking_app"))
         threading.Thread(target=work, daemon=True).start()
 
     def _after_check(self, info, err, quiet: bool, bundle) -> None:
         if err is not None:
             if not quiet:
-                messagebox.showwarning(APP_TITLE, f"Не удалось проверить обновление: {err}")
+                messagebox.showwarning(app_title(), t("upd.check_failed", e=err))
             self.show_status()
             return
         if info is None:
             if not quiet:
-                messagebox.showinfo(APP_TITLE, "У вас последняя версия программы.")
+                messagebox.showinfo(app_title(), t("upd.latest"))
             self.show_status()
             return
         size = info["size"] / 1_000_000
         if not messagebox.askyesno(
-                APP_TITLE, f"Есть новая версия программы ({size:.0f} МБ).\n\n"
-                "Скачать и установить? Программа закроется и через несколько "
-                "секунд откроется уже обновлённой. Ваши билеты и настройки "
-                "сохранятся."):
+                app_title(), t("upd.ask", size=f"{size:.0f}")):
             self.show_status()
             return
-        self.status_var.set("Скачиваю новую версию… не закрывайте программу.")
+        self.status_var.set(t("status.downloading"))
 
         def work():
             try:
@@ -991,8 +1033,7 @@ class App(tk.Tk):
 
     def _after_download(self, new_app, err, bundle) -> None:
         if err is not None:
-            messagebox.showerror(APP_TITLE, f"Обновление не удалось: {err}\n"
-                                 "Программа осталась прежней.")
+            messagebox.showerror(app_title(), t("upd.failed", e=err))
             self.show_status()
             return
         upd.install_and_restart(new_app, bundle)
@@ -1001,24 +1042,23 @@ class App(tk.Tk):
     def on_set_won(self) -> None:
         sel = self.my_tree.selection()
         if not sel:
-            messagebox.showinfo(APP_TITLE, "Сначала выберите билет в таблице.")
+            messagebox.showinfo(app_title(), t("mine.select_first"))
             return
         item = self._my_items[int(sel[0])]
         amount = simpledialog.askfloat(
-            APP_TITLE, "Сколько выиграл этот билет, $?\n(сумму смотрите на сайте лотереи; "
-            "бесплатный билет — впишите 0 или его цену)", parent=self,
+            app_title(), t("mine.won_prompt"), parent=self,
             minvalue=0, initialvalue=float(item.get("won", 0) or 0))
         if amount is None:
             return
         try:
             data.set_won(item, amount)
         except ValueError as e:
-            messagebox.showerror(APP_TITLE, str(e))
+            messagebox.showerror(app_title(), str(e))
         self.fill_my_tickets()
 
     def on_export(self) -> None:
         """Файл билетов для iPhone (тот же формат my_tickets.json)."""
-        path = filedialog.asksaveasfilename(title="Сохранить билеты", defaultextension=".json",
+        path = filedialog.asksaveasfilename(title=t("mine.export_title"), defaultextension=".json",
                                             initialfile="my_tickets.json",
                                             filetypes=[("JSON", "*.json")])
         if not path:
@@ -1026,22 +1066,21 @@ class App(tk.Tk):
         import json
         Path(path).write_text(json.dumps(data.load_tickets(), ensure_ascii=False, indent=1),
                               encoding="utf-8")
-        messagebox.showinfo(APP_TITLE, "Сохранено. Отправьте файл на iPhone (AirDrop) и "
-                            "там нажмите «Загрузить файл» во вкладке «Мои».")
+        messagebox.showinfo(app_title(), t("mine.exported"))
 
     def on_import_tickets(self) -> None:
-        path = filedialog.askopenfilename(title="Билеты с другого устройства",
-                                          filetypes=[("JSON", "*.json"), ("Все файлы", "*")])
+        path = filedialog.askopenfilename(title=t("mine.import_title"),
+                                          filetypes=[("JSON", "*.json"), (t("all_files"), "*")])
         if not path:
             return
         import json
         try:
             n = data.import_tickets(json.loads(Path(path).read_text(encoding="utf-8")))
         except (OSError, ValueError) as e:
-            messagebox.showerror(APP_TITLE, f"Не удалось прочитать файл: {e}")
+            messagebox.showerror(app_title(), t("mine.read_err", e=e))
             return
         self.fill_my_tickets()
-        messagebox.showinfo(APP_TITLE, f"Добавлено билетов: {n}")
+        messagebox.showinfo(app_title(), t("mine.imported", n=n))
 
     def on_limit_change(self) -> None:
         try:
@@ -1055,31 +1094,31 @@ class App(tk.Tk):
     def on_delete_ticket(self) -> None:
         sel = self.my_tree.selection()
         if not sel:
-            messagebox.showinfo(APP_TITLE, "Сначала выберите билет в таблице.")
+            messagebox.showinfo(app_title(), t("mine.select_first"))
             return
         item = self._my_items[int(sel[0])]
-        if messagebox.askyesno(APP_TITLE, "Удалить билет "
-                               + " ".join(map(str, item["numbers"])) + "?"):
+        if messagebox.askyesno(app_title(), t("mine.confirm_delete",
+                                              nums=" ".join(map(str, item["numbers"])))):
             data.remove_ticket(item)
             self.fill_my_tickets()
 
     def on_add_manual(self) -> None:
         win = tk.Toplevel(self)
-        win.title("Добавить купленный билет")
+        win.title(t("man.title"))
         win.transient(self)
         frm = ttk.Frame(win, padding=14)
         frm.pack(fill="both", expand=True)
         game_v = tk.StringVar(value=self.game.title)
-        ttk.Label(frm, text="Лотерея:").grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Label(frm, text=t("man.game")).grid(row=0, column=0, sticky="w", pady=4)
         game_box = ttk.Combobox(frm, textvariable=game_v, state="readonly", width=14,
                                 values=[x.title for x in core.GAMES.values()])
         game_box.grid(row=0, column=1, sticky="w")
-        ttk.Label(frm, text="Числа через пробел:").grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Label(frm, text=t("man.nums")).grid(row=1, column=0, sticky="w", pady=4)
         nums_v = tk.StringVar()
         entry = ttk.Entry(frm, textvariable=nums_v, width=32, font=("Menlo", 16))
         entry.grid(row=1, column=1, sticky="w")
-        ttk.Label(frm, text="Дата тиража (ДД.ММ.ГГГГ):").grid(row=2, column=0,
-                                                              sticky="w", pady=4)
+        ttk.Label(frm, text=t("man.date", fmt=t("fmt.date_hint"))).grid(row=2, column=0,
+                                                                       sticky="w", pady=4)
         draw_v = tk.StringVar()
         ttk.Entry(frm, textvariable=draw_v, width=14).grid(row=2, column=1, sticky="w")
 
@@ -1087,27 +1126,31 @@ class App(tk.Tk):
             return next(x for x in core.GAMES.values() if x.title == game_v.get())
 
         def set_default_draw(*_):
-            draw_v.set(f"{core.next_draw(game_of(), date.today()):%d.%m.%Y}")
+            draw_v.set(i18n.d(core.next_draw(game_of(), date.today())))
         game_box.bind("<<ComboboxSelected>>", set_default_draw)
         set_default_draw()
 
         def add():
             g = game_of()
             try:
-                day = datetime.strptime(draw_v.get().strip(), "%d.%m.%Y").date()
+                day = datetime.strptime(draw_v.get().strip(), t("fmt.date")).date()
+            except ValueError:
+                messagebox.showwarning(app_title(), t("man.bad_date", fmt=t("fmt.date_hint"),
+                                                      ex=i18n.d(date(2026, 10, 20))), parent=win)
+                return
+            try:
                 nums = core.parse_numbers(nums_v.get(), g, day)
             except ValueError as e:
-                msg = str(e) if "time data" not in str(e) else \
-                    "Дата должна быть в виде ДД.ММ.ГГГГ, например 20.10.2026."
-                messagebox.showwarning(APP_TITLE, msg, parent=win)
+                msg = str(e)
+                messagebox.showwarning(app_title(), msg, parent=win)
                 return
             n = data.add_tickets(g.key, [nums], date.today().isoformat(), day.isoformat())
             self.fill_my_tickets()
             nums_v.set("")
-            status.set("Добавлен." if n else "Такой билет на этот тираж уже есть.")
+            status.set(t("man.added") if n else t("man.dup"))
             entry.focus_set()
 
-        ttk.Button(frm, text="Добавить", command=add).grid(row=3, column=1, sticky="w",
+        ttk.Button(frm, text=t("man.add"), command=add).grid(row=3, column=1, sticky="w",
                                                            pady=8)
         status = tk.StringVar()
         ttk.Label(frm, textvariable=status, foreground=GOLD_LIGHT).grid(row=4, column=1,
@@ -1120,24 +1163,21 @@ class App(tk.Tk):
         self.on_generate()
 
     def shop_url(self) -> str:
-        return data.PROVINCES.get(self.province_var.get(),
-                                  data.PROVINCES[data.DEFAULT_PROVINCE])
+        return data.PROVINCES.get(self.province_code, data.PROVINCES[data.DEFAULT_PROVINCE])
 
     def on_open_shop(self) -> None:
         """Открывает официальный сайт лотереи. Покупает человек сам."""
         if data.over_limit(data.load_tickets(), date.today()):
             m = data.money_summary(data.load_tickets(), date.today())
             if not messagebox.askyesno(
-                    APP_TITLE, f"На этой неделе уже потрачено {m['week']:.2f} $ — это "
-                    f"не меньше вашего лимита {data.weekly_limit():g} $.\n\n"
-                    "Всё равно открыть сайт покупки?"):
+                    app_title(), t("shop.over_limit", spent=i18n.num(m["week"]),
+                                   lim=f"{data.weekly_limit():g}")):
                 return
         if not self.generated:
             self.on_generate_10()
         self.on_copy()
         webbrowser.open(self.shop_url())
-        self.status_var.set("Сайт открыт в браузере, варианты скопированы — "
-                            "окно программы можно держать рядом и переписывать числа.")
+        self.status_var.set(t("status.shop_opened"))
 
     def on_copy(self) -> None:
         self.clipboard_clear()
@@ -1149,12 +1189,10 @@ class App(tk.Tk):
         last = data.last_update()
         today = date.today()
         nxt = core.next_draw(self.game, today)
-        when = "сегодня" if nxt == today else \
-            f"{core.WEEKDAY_RU[nxt.weekday()]} {nxt:%d.%m}"
-        upd = f"{last:%d.%m %H:%M}" if last else "ещё не обновлялось"
-        self.status_var.set(
-            f"Автообновление: последнее {upd}, проверка каждые 3 часа. "
-            f"Следующий тираж {self.game.title}: {when}, около 22:30 по Торонто.")
+        when = t("status.today") if nxt == today else \
+            f"{core.weekday_name(nxt)} {nxt.strftime(t('fmt.date_short'))}"
+        upd_at = last.strftime(t("fmt.datetime")) if last else t("status.never")
+        self.status_var.set(t("status.auto", last=upd_at, game=self.game.title, when=when))
 
     def auto_update_tick(self) -> None:
         """Тихо обновляет данные, если с прошлого раза прошло 3 часа."""
@@ -1166,7 +1204,7 @@ class App(tk.Tk):
         if self._updating:
             return
         self._updating = True
-        self.status_var.set("Проверяю новые тиражи в интернете…")
+        self.status_var.set(t("status.checking_draws"))
         old = {k: list(v) for k, v in self.all_draws.items()}
 
         def work():
@@ -1175,27 +1213,28 @@ class App(tk.Tk):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _after_update(self, report: dict[str, str], old: dict, quiet: bool) -> None:
+    def _after_update(self, report: dict[str, tuple[bool, str]], old: dict,
+                      quiet: bool) -> None:
         self._updating = False
         self.load_all_silent()
         fresh = []
         for g in core.GAMES.values():
             if old.get(g.key):
                 for d in core.new_draws(old[g.key], self.all_draws.get(g.key, [])):
-                    fresh.append(f"{g.title} {d.when:%d.%m.%Y}: "
+                    fresh.append(f"{g.title} {i18n.d(d.when)}: "
                                  + "  ".join(map(str, d.numbers)))
-        failed = [f"{k}: {v}" for k, v in report.items() if not v.startswith("обновлено")]
+        failed = [f"{k}: {text}" for k, (ok, text) in report.items() if not ok]
         if fresh:
             mine = self.draw_report(old)
-            data.notify(APP_TITLE, mine or ("Вышел новый тираж: " + fresh[-1]))
-            messagebox.showinfo(APP_TITLE, "Вышли новые тиражи:\n\n" + "\n".join(fresh)
+            data.notify(app_title(), mine or t("new.one", d=fresh[-1]))
+            messagebox.showinfo(app_title(), t("new.title") + "\n\n" + "\n".join(fresh)
                                 + ("\n\n" + mine if mine else "")
-                                + "\n\nВаши билеты сверены — см. вкладку «Мои билеты».")
+                                + "\n\n" + t("new.checked"))
         elif not quiet:
-            messagebox.showinfo(APP_TITLE, "\n".join(f"{k}: {v}" for k, v in report.items()))
+            messagebox.showinfo(app_title(), "\n".join(f"{k}: {text}"
+                                                       for k, (ok, text) in report.items()))
         if failed and quiet:
-            self.status_var.set("Не удалось обновить (" + "; ".join(failed)
-                                + "). Попробую снова через 10 минут.")
+            self.status_var.set(t("status.update_failed", why="; ".join(failed)))
 
     def draw_report(self, old: dict) -> str:
         """Короткий итог по моим билетам на только что вышедшие тиражи."""
@@ -1204,16 +1243,16 @@ class App(tk.Tk):
         for g in core.GAMES.values():
             mains = self.all_draws.get(g.key, [])
             for d in core.new_draws(old.get(g.key, []), mains):
-                mine = [t for t in items if t.get("game") == g.key
-                        and t.get("draw") == d.when.isoformat()]
+                mine = [x for x in items if x.get("game") == g.key
+                        and x.get("draw") == d.when.isoformat()]
                 if not mine:
                     continue
-                res = [core.check_ticket(g, t["numbers"], d.when, mains,
-                                         self.extra_draws.get(g.key, [])) for t in mine]
+                res = [core.check_ticket(g, x["numbers"], d.when, mains,
+                                         self.extra_draws.get(g.key, [])) for x in mine]
                 best = max(r.matches for r in res)
                 prizes = sum(1 for r in res if r.prize or r.maxmillions)
-                parts.append(f"{g.title} {d.when:%d.%m}: билетов {len(mine)}, "
-                             f"лучший {best} из {g.pick}, с призом {prizes}")
+                parts.append(t("new.report", game=g.title, d=d.when.strftime(t("fmt.date_short")),
+                               n=len(mine), best=best, pick=g.pick, p=prizes))
         return "; ".join(parts)
 
     def load_all_silent(self) -> None:
@@ -1227,18 +1266,18 @@ class App(tk.Tk):
 
     def on_import(self) -> None:
         path = filedialog.askopenfilename(
-            title=f"CSV с историей {self.game.title}",
-            filetypes=[("CSV", "*.csv"), ("Все файлы", "*")])
+            title=t("csv.title", game=self.game.title),
+            filetypes=[("CSV", "*.csv"), (t("all_files"), "*")])
         if not path:
             return
         try:
             text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
             n = data.save_checked(self.game, text, data.user_dir())
         except Exception as e:
-            messagebox.showerror(APP_TITLE, str(e))
+            messagebox.showerror(app_title(), str(e))
             return
         self.load_all_silent()
-        messagebox.showinfo(APP_TITLE, f"{self.game.title}: загружено {n} тиражей.")
+        messagebox.showinfo(app_title(), t("csv.loaded", game=self.game.title, n=n))
 
 
 def selftest() -> None:
@@ -1258,10 +1297,10 @@ def selftest() -> None:
         text = "\n".join(" ".join(map(str, t)) for t in app.generated)
         extra = len(app.extra_draws[app.game.key])
         for kind in KINDS:
-            app.kind_var.set(kind)
+            app.kind_code = kind
             app.refresh()
             print(f"  {kind}: розыгрышей в выборке {len(app.stats.draws)}")
-        app.kind_var.set("Только основные")
+        app.kind_code = "main"
         app.refresh()
         print(f"SELFTEST {title}: тиражей {n}, MaxMillions {extra}")
         print(app.status_var.get())
@@ -1276,7 +1315,7 @@ def selftest() -> None:
     app.on_save_bought()
     saved = app.bought_combos("LOTTOMAX")
     assert len(saved) == 5 and len(app.my_tree.get_children()) == 5, saved
-    assert all("ждёт тиража" in app.my_tree.set(r, "result")
+    assert all(t("res.waiting") in app.my_tree.set(r, "result")
                for r in app.my_tree.get_children())
     app.on_generate_10()
     again = {tuple(t) for t in app.generated}
@@ -1287,15 +1326,24 @@ def selftest() -> None:
                      last.when.isoformat())
     app.fill_my_tickets()
     results = [app.my_tree.set(r, "result") for r in app.my_tree.get_children()]
-    assert any(r.startswith("7 из 7") and "ДЖЕКПОТ" in r for r in results), results
+    assert any(r.startswith(t("res.matches", m=7, pick=7)) and t("prize.jackpot") in r
+               for r in results), results
     print("SELFTEST мои билеты:", app.my_summary.get())
+    app.nb.select(1)
+    app.update()
+    assert app.my_xscroll.winfo_ismapped(), "нет прокрутки вбок у «Моих билетов»"
+    assert all(b.winfo_ismapped() for b in app.my_buttons), "кнопки «Моих билетов» не видны"
+    app.my_tree.xview_moveto(1.0)
+    app.update()
+    assert app.my_tree.xview()[1] == 1.0, app.my_tree.xview()
+    app.my_tree.xview_moveto(0.0)
     for r in app.my_tree.get_children():
         print("  ", app.my_tree.item(r)["values"])
 
     # Главная панель и самообновление.
     for key, (nums, mine) in app.board_vars.items():
         print("SELFTEST панель:", nums.get(), "|", mine.get())
-        assert nums.get() and "нет данных" not in nums.get()
+        assert nums.get() and t("board.nodata", game="") not in nums.get()
     expect = os.environ.get("EXPECT_VERSION")
     if expect:
         assert upd.current_version() == expect, (upd.current_version(), expect)
@@ -1315,19 +1363,77 @@ def selftest() -> None:
     print("SELFTEST вывод:", app.bt_verdict.get())
     assert len(app.bt_tree.get_children()) == len(core.STRATEGIES)
     print("SELFTEST деньги:", app.money_var.get())
-    assert "Потрачено" in app.money_var.get()
+    assert app.money_var.get().startswith(t("mine.money").split("{")[0])
     app.avoid_popular_var.set(True)
     app.strategy_var.set("random")
     app.on_generate_10()
     assert not any(core.popular_reasons(t, core.LOTTO_MAX) for t in app.generated)
 
-    if os.environ.get("LOTTO_SHOTS_DIR"):
-        shots(app, Path(os.environ["LOTTO_SHOTS_DIR"]))
+    shots_dir = os.environ.get("LOTTO_SHOTS_DIR")
+    if shots_dir:
+        shots(app, Path(shots_dir))
+
+    # Языки: окно перерисовывается, выбор, варианты и билеты сохраняются.
+    rows_before = len(app.my_tree.get_children())
+    gen_before = [list(x) for x in app.generated]
+    app.period_code = "y5"
+    app.on_game_change(keep_marks=True)
+    for code in ("en", "fr", "ru"):
+        app.nb.select(7)                   # как у человека: кнопки языка — на этой вкладке
+        app.update()
+        app.set_language(code)
+        app.update()
+        assert i18n.lang() == code and data.load_settings().get("lang") == code
+        tabs = [app.nb.tab(i, "text") for i in range(app.nb.index("end"))]
+        assert tabs[0] == i18n.STRINGS[code]["tab.gen"], tabs
+        assert i18n.STRINGS[code]["tab.about"] in tabs, tabs
+        assert app.title() == i18n.STRINGS[code]["app.title"]
+        assert len(app.my_tree.get_children()) == rows_before
+        assert app.generated == gen_before and len(app.gen_tree.get_children()) == 10
+        assert app.period_code == "y5" and app.period_box.get() == t("period.y5")
+        assert t("res.waiting") in " ".join(app.my_tree.set(r, "result")
+                                            for r in app.my_tree.get_children())
+        for nums, _ in app.board_vars.values():   # строка тиража не обрезана
+            assert len(nums.get()) <= BOARD_WIDTH, (len(nums.get()), nums.get())
+        # Язык меняют, стоя на вкладке «Язык»: после перерисовки она не пустая.
+        page = app.nametowidget(app.nb.select())
+        assert app.nb.index("current") == 7 and page.winfo_children()
+        assert all(w.winfo_ismapped() for w in page.winfo_children()), \
+            [w.winfo_ismapped() for w in page.winfo_children()]
+        app.nb.select(1)
+        app.update()
+        assert all(b.winfo_ismapped() for b in app.my_buttons), f"{code}: кнопки не видны"
+        app.nb.select(7)
+        app.update()
+        print(f"SELFTEST язык {code}: вкладки {tabs}")
+        print("   ", app.status_var.get())
+        print("   ", app.bt_verdict.get()[:80] if app.bt_verdict.get() else "")
+        if shots_dir and code != "ru":
+            shots(app, Path(shots_dir), prefix=f"{code}-",
+                  which=("5-lang", "1-gen", "2-mine", "6-about"))
+
+    if shots_dir:
+        # После смены языка: «ушёл с вкладки и вернулся» — без поправки и с ней.
+        for fix in (False, True):
+            app.redraw_fix = fix
+            for code in ("fr", "ru"):
+                app.nb.select(7)
+                app.update()
+                app.set_language(code)
+                app.update()
+            for tab in (1, 2, 5, 7):
+                app.nb.select(tab)
+                app.update()
+                app.nb.select(0)
+                app.update()
+                shots(app, Path(shots_dir), prefix=f"diag-{'fix' if fix else 'raw'}-{tab}-",
+                      which=("back",))
+        app.redraw_fix = True
 
     opened = []
     webbrowser.open = opened.append       # браузер в самопроверке не открываем
     for prov in data.PROVINCES:
-        app.province_var.set(prov)
+        app.province_code = prov
         app.on_open_shop()
     assert opened == list(data.PROVINCES.values()), opened
     print("SELFTEST сайты:", opened)
@@ -1335,21 +1441,20 @@ def selftest() -> None:
     print("SELFTEST OK")
 
 
-def shots(app: "App", folder: Path) -> None:
+def shots(app: "App", folder: Path, prefix: str = "",
+          which: tuple = ("1-gen", "1b-gen-bottom", "2-mine", "3-test", "4-odds", "6-about")) -> None:
     """Снимки окна для проверки оформления (кладутся в folder при сборке)."""
     import subprocess
     import time
     folder.mkdir(parents=True, exist_ok=True)
     app.geometry("1400x870+0+30")
-    nb = None
-    for w in app.winfo_children():
-        for c in w.winfo_children():
-            if isinstance(c, ttk.Notebook):
-                nb = c
-    for idx, name in ((0, "1-gen"), (0, "1b-gen-bottom"), (1, "2-mine"), (4, "3-test"),
-                      (5, "4-odds")):
-        if nb is not None:
-            nb.select(idx)
+    nb = app.nb
+    plan = {"1-gen": 0, "1b-gen-bottom": 0, "2-mine": 1, "3-test": 4, "4-odds": 5,
+            "6-about": 6, "5-lang": 7}
+    if which == ("back",):              # вернуться на вкладку, где были до «Генератора»
+        plan = {"back": int(prefix.split("-")[2])}
+    for name in which:
+        nb.select(plan[name])
         app.gen_scroll.canvas.yview_moveto(1.0 if name == "1b-gen-bottom" else 0.0)
         app.lift()
         app.attributes("-topmost", True)
@@ -1358,7 +1463,7 @@ def shots(app: "App", folder: Path) -> None:
             time.sleep(0.1)
         try:
             subprocess.run(["screencapture", "-x", "-R0,0,1400,910",
-                            str(folder / f"{name}.png")], timeout=20, check=True)
+                            str(folder / f"{prefix}{name}.png")], timeout=20, check=True)
             print("SHOT", name, "ok")
         except Exception as e:      # снимок — не повод валить сборку
             print("SHOT-FAIL", name, e)

@@ -43,6 +43,7 @@ def run_node(payload: dict) -> dict:
     script = f"""
 const L = require({json.dumps(str(JS))});
 const P = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+L.setStrings(JSON.parse(require('fs').readFileSync({json.dumps(str(JS.parent / "i18n.json"))}, 'utf8')), P.lang);
 const out = {{}};
 out.maxBall = P.dates.map(d => L.maxBall('LOTTOMAX', d));
 const st = L.computeStats('LOTTOMAX', 7, P.draws);
@@ -51,6 +52,8 @@ out.top = st.top; out.chi2 = st.chi2; out.p = st.p; out.expected = st.expected;
 out.topTickets = L.generate(st, 'top', 6, {{avoid: P.avoid}});
 out.popular = P.tickets.map(t => L.popularReasons(t));
 out.check = P.checks.map(c => L.checkTicket('LOTTOMAX', 7, c[0], c[1], P.draws, P.extras).text);
+out.amounts = (P.amounts || []).map(([g, m, b]) => L.prizeAmount(g, m, b));
+out.prices = (P.prices || []).map(([g, d]) => L.linePrice(g, d));
 out.next = P.dates.map(d => [L.nextDraw('LOTTOMAX', d), L.nextDraw('649', d)]);
 out.money = L.moneySummary(P.items, '2026-10-17');
 out.parse = P.parse.map(([t, d]) => {{ try {{ return L.parseNumbers(t, 'LOTTOMAX', 7, d); }}
@@ -102,7 +105,13 @@ class WebCoreMatchesPython(unittest.TestCase):
         cls.parse = [("1 2 3 4 5 6 52", "2026-10-20"), ("1 2 3 4 5 6 52", "2026-04-10"),
                      ("7 6 5 4 3 2 1", "2020-01-01"), ("1 1 2 3 4 5 6", "2026-10-20"),
                      ("1 2 3", "2026-10-20"), ("1 2 3 4 5 6 50", "2018-01-01")]
+        cls.amounts = [[g.key, m, b] for g in core.GAMES.values()
+                       for m in range(g.pick + 1) for b in (False, True)]
+        cls.prices = [[g, d] for g in ("LOTTOMAX", "649")
+                      for d in ("", "2025-12-30", "2026-04-13", "2026-04-14", "2026-10-20")]
         payload = {
+            "lang": "ru",
+            "amounts": cls.amounts, "prices": cls.prices,
             "dates": cls.dates,
             "draws": [[d.when.isoformat(), list(d.numbers), d.bonus] for d in cls.main],
             "extras": [[d.when.isoformat(), list(d.numbers)] for d in cls.extra],
@@ -144,6 +153,14 @@ class WebCoreMatchesPython(unittest.TestCase):
         self.assertTrue(any("ждёт" in x for x in py))
         self.assertTrue(any("бонус" in x for x in py))
 
+    def test_prize_amounts_and_prices(self):
+        amounts, prices, js = self.amounts, self.prices, self.js
+        self.assertEqual(js["amounts"], [core.prize_amount(core.GAMES[g], m, b)
+                                         for g, m, b in amounts])
+        self.assertEqual(js["prices"], [data.line_price(g, d) for g, d in prices])
+        self.assertIn(20, js["amounts"])
+        self.assertIn(5 / 3, js["prices"])
+
     def test_next_draw(self):
         py = [[core.next_draw(core.LOTTO_MAX, date.fromisoformat(d)).isoformat(),
                core.next_draw(core.LOTTO_649, date.fromisoformat(d)).isoformat()]
@@ -174,6 +191,26 @@ class WebCoreMatchesPython(unittest.TestCase):
         self.assertAlmostEqual(js["expected"], r.expected_avg, places=9)
         self.assertAlmostEqual(js["se"], r.se, places=9)
         self.assertEqual((js["hits3"], js["hits4"]), (r.hits3, r.hits4))
+
+    def test_texts_match_in_all_languages(self):
+        import i18n
+        for lang in ("en", "fr"):
+            i18n.set_lang(lang)
+            try:
+                payload = {"lang": lang, "dates": self.dates[:3],
+                           "draws": [[d.when.isoformat(), list(d.numbers), d.bonus]
+                                     for d in self.main],
+                           "extras": [[d.when.isoformat(), list(d.numbers)] for d in self.extra],
+                           "avoid": self.avoid, "tickets": self.tickets[-5:],
+                           "checks": self.checks, "items": self.items, "parse": self.parse}
+                js = run_node(payload)
+                py = [core.check_ticket(core.LOTTO_MAX, t, date.fromisoformat(d), self.main,
+                                        self.extra).text(core.LOTTO_MAX) for t, d in self.checks]
+                self.assertEqual(js["check"], py, lang)
+                self.assertEqual(js["popular"], [core.popular_reasons(t, core.LOTTO_MAX)
+                                                 for t in self.tickets[-5:]], lang)
+            finally:
+                i18n.set_lang("ru")
 
     def test_odds(self):
         self.assertEqual(self.js["odds"], [core.LOTTO_MAX.odds(), core.LOTTO_649.odds()])

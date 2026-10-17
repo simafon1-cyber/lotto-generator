@@ -59,7 +59,7 @@ jobs:
         run: |
           pyinstaller --noconfirm --windowed --name "Lotto Generator" \
             --osx-bundle-identifier com.personal.lottogenerator \
-            --add-data "data:data" --hidden-import certifi lotto_app.py
+            --add-data "data:data" --add-data "web/i18n.json:." --hidden-import certifi lotto_app.py
       - name: Самопроверка собранного приложения
         run: |
           LOTTO_SELFTEST=1 EXPECT_VERSION="${{ github.sha }}" \

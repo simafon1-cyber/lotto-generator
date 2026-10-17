@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
+from i18n import t
+
 # ---------------------------------------------------------------------------
 # Правила игр
 # ---------------------------------------------------------------------------
@@ -191,8 +193,10 @@ def parse_all(text: str, game: Game) -> tuple[list[Draw], list[Draw]]:
 
 # Дни недели: 0 — понедельник. Тиражи около 22:30 по восточному времени.
 DRAW_WEEKDAYS = {"649": (2, 5), "LOTTOMAX": (1, 4)}
-WEEKDAY_RU = ("понедельник", "вторник", "среда", "четверг", "пятница",
-              "суббота", "воскресенье")
+
+
+def weekday_name(d: date, short: bool = False) -> str:
+    return t(f"{'wds' if short else 'wd'}.{d.weekday()}")
 
 
 def next_draw(game: Game, after: date) -> date:
@@ -297,14 +301,12 @@ def chi2_sf(x: float, k: int) -> float:
 # Генерация
 # ---------------------------------------------------------------------------
 
-STRATEGIES = {
-    "hot": "Чаще выпадавшие (с учётом веса)",
-    "top": "Строго самые частые",
-    "cold": "Реже выпадавшие (с учётом веса)",
-    "overdue": "Давно не выпадавшие",
-    "mix": "Смесь: половина частых, половина редких",
-    "random": "Полностью случайно",
-}
+# Способы выбора (порядок — как в окне); названия — в переводах strat.<код>.
+STRATEGIES = ("hot", "top", "cold", "overdue", "mix", "random")
+
+
+def strategy_name(key: str) -> str:
+    return t(f"strat.{key}")
 
 
 def _weighted_sample(pool: list[int], weights: dict[int, float], k: int,
@@ -339,11 +341,11 @@ def generate(stats: Stats, strategy: str = "hot", tickets: int = 1,
     fixed = set(fixed or ()) & set(stats.numbers)
     excluded = (set(excluded or ()) - fixed) & set(stats.numbers)
     if len(fixed) > pick:
-        raise ValueError(f"Закреплено {len(fixed)} чисел, а в билете только {pick}.")
+        raise ValueError(t("err.pinned", n=len(fixed), pick=pick))
     pool = [n for n in stats.numbers if n not in fixed and n not in excluded]
     need = pick - len(fixed)
     if len(pool) < need:
-        raise ValueError("Слишком много исключённых чисел — не из чего выбрать.")
+        raise ValueError(t("err.excluded"))
 
     counts = {n: stats.numbers[n].count for n in stats.numbers}
     mean = (sum(counts.values()) / len(counts)) or 1.0
@@ -390,7 +392,7 @@ def generate(stats: Stats, strategy: str = "hot", tickets: int = 1,
         elif strategy == "random":
             part = rng.sample(pool, need)
         else:
-            raise ValueError(f"Неизвестный способ: {strategy}")
+            raise ValueError(f"unknown strategy: {strategy}")
         ticket = tuple(sorted(fixed | set(part)))
         if ticket in seen:
             continue
@@ -421,14 +423,12 @@ def parse_numbers(text: str, game: Game, when: date | None = None) -> list[int]:
     nums = [int(x) for x in re.findall(r"\d+", text)]
     top = game.max_ball(when)
     if len(nums) != game.pick:
-        raise ValueError(f"В билете {game.title} должно быть {game.pick} чисел, "
-                         f"а введено {len(nums)}.")
+        raise ValueError(t("err.count", game=game.title, pick=game.pick, n=len(nums)))
     if len(set(nums)) != len(nums):
-        raise ValueError("Числа в билете не должны повторяться.")
+        raise ValueError(t("err.dup"))
     bad = [n for n in nums if not 1 <= n <= top]
     if bad:
-        raise ValueError(f"Числа должны быть от 1 до {top}: не подходит "
-                         + ", ".join(map(str, bad)) + ".")
+        raise ValueError(t("err.range", top=top, bad=", ".join(map(str, bad))))
     return sorted(nums)
 
 
@@ -437,33 +437,53 @@ class TicketResult:
     drawn: bool                 # тираж уже прошёл и есть в данных
     matches: int = 0
     bonus: bool = False
-    prize: str = ""             # пусто — без приза
-    maxmillions: int = 0        # сколько MaxMillions совпало целиком
+    prize: str = ""             # "jackpot" / "cash" / "free"; пусто — без приза
+    maxmillions: int = 0        # сколько MaxMillions/MaxPlus совпало целиком
+    amount: int | None = None   # постоянная сумма приза, $; None — делится из фонда
 
     def text(self, game: Game) -> str:
         if not self.drawn:
-            return "ждёт тиража"
-        out = f"{self.matches} из {game.pick}" + (" + бонус" if self.bonus else "")
-        out += f" — {self.prize}" if self.prize else " — без приза"
+            return t("res.waiting")
+        out = t("res.matches", m=self.matches, pick=game.pick)
+        out += t("res.bonus") if self.bonus else ""
+        if self.amount:
+            out += " — " + t("prize.fixed", amount=self.amount)
+        else:
+            out += f" — {t('prize.' + self.prize)}" if self.prize else t("res.no_prize")
         if self.maxmillions:
-            out += f"; MaxMillions совпал целиком: {self.maxmillions}!"
+            out += t("res.mm", n=self.maxmillions)
         return out
 
 
 def _prize(game: Game, m: int, bonus: bool) -> str:
+    """Код приза: jackpot / cash / free; пустая строка — приза нет."""
     if m == game.pick:
-        return "ДЖЕКПОТ"
+        return "jackpot"
     if game.key == "LOTTOMAX":
         if m >= 4 or (m == 3 and bonus):
-            return "денежный приз (сумму смотрите на сайте)"
+            return "cash"
         if m == 3:
-            return "бесплатный билет"
+            return "free"
     else:
         if m >= 3 or (m == 2 and bonus):
-            return "денежный приз (сумму смотрите на сайте)"
+            return "cash"
         if m == 2:
-            return "бесплатный билет"
+            return "free"
     return ""
+
+
+def prize_amount(game: Game, m: int, bonus: bool) -> int | None:
+    """Постоянные призы по официальным таблицам (OLG, Loto-Québec, 2026).
+
+    Lotto Max: 3 из 7 + бонус — 20 $. Lotto 6/49: 3 из 6 — 10 $, 2 из 6 +
+    бонус — 5 $. Остальные денежные призы делятся из призового фонда, их
+    сумма известна только после тиража (на сайте лотереи).
+    """
+    if game.key == "LOTTOMAX":
+        return 20 if (m == 3 and bonus) else None
+    if m == 3:
+        return 10
+    return 5 if (m == 2 and bonus) else None
 
 
 def check_ticket(game: Game, numbers: list[int], draw_day: date,
@@ -481,7 +501,7 @@ def check_ticket(game: Game, numbers: list[int], draw_day: date,
     m = len(t & set(main.numbers))
     bonus = main.bonus is not None and main.bonus in t
     mm = sum(1 for d in extras if d.when == draw_day and set(d.numbers) == t)
-    return TicketResult(True, m, bonus, _prize(game, m, bonus), mm)
+    return TicketResult(True, m, bonus, _prize(game, m, bonus), mm, prize_amount(game, m, bonus))
 
 
 def count_draw_rows(text: str) -> int:
@@ -539,32 +559,32 @@ def popular_reasons(ticket: list[int], game: Game) -> list[str]:
     массово берут дни рождения (1–31), ряды подряд, «лесенки» с равным
     шагом и числа с одной последней цифрой.
     """
-    t = sorted(ticket)
+    tk = sorted(ticket)
     out = []
-    high = sum(1 for n in t if n > 31)
+    high = sum(1 for n in tk if n > 31)
     if high < 2:
-        out.append("почти все числа — дни месяца (1–31)")
+        out.append(t("pop.birthdays"))
     run = best = 1
-    for a, b in zip(t, t[1:]):
+    for a, b in zip(tk, tk[1:]):
         run = run + 1 if b == a + 1 else 1
         best = max(best, run)
     if best >= 3:
-        out.append(f"{best} числа подряд")
-    for i in range(len(t) - 3):
-        for j in range(i + 1, len(t) - 2):
-            step = t[j] - t[i]
-            seq = [t[i] + k * step for k in range(4)]
-            if step > 1 and all(x in t for x in seq):
-                out.append(f"«лесенка» с шагом {step}")
+        out.append(t("pop.run", n=best))
+    for i in range(len(tk) - 3):
+        for j in range(i + 1, len(tk) - 2):
+            step = tk[j] - tk[i]
+            seq = [tk[i] + k * step for k in range(4)]
+            if step > 1 and all(x in tk for x in seq):
+                out.append(t("pop.ladder", step=step))
                 break
         else:
             continue
         break
     tails = {}
-    for n in t:
+    for n in tk:
         tails[n % 10] = tails.get(n % 10, 0) + 1
     if max(tails.values()) >= 4:
-        out.append("4 и больше чисел с одной последней цифрой")
+        out.append(t("pop.tail"))
     return out
 
 

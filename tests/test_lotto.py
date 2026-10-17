@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import i18n  # noqa: E402
 import lotto_core as core  # noqa: E402
 import lotto_data as data  # noqa: E402
 import lotto_update as upd  # noqa: E402
@@ -142,8 +143,9 @@ class ScheduleTests(unittest.TestCase):
                 mock.patch.object(data, "user_dir", return_value=Path(tmp)), \
                 mock.patch.object(data, "download_csv", fake_download):
             report = data.update_all()
-            self.assertTrue(report["Lotto Max"].startswith("обновлено"))
-            self.assertIn("нет сети", report["Lotto 6/49"])
+            self.assertTrue(report["Lotto Max"][0])
+            self.assertFalse(report["Lotto 6/49"][0])
+            self.assertIn("нет сети", report["Lotto 6/49"][1])
             self.assertIsNone(data.last_update())     # повторит через 10 минут
             self.assertTrue((Path(tmp) / "LOTTOMAX.csv").is_file())
 
@@ -160,7 +162,7 @@ class ScheduleTests(unittest.TestCase):
                 mock.patch.object(data, "download_csv", lambda g, timeout=60: good[g.key]):
             before = datetime.now().replace(microsecond=0)
             report = data.update_all()
-            self.assertTrue(all(v.startswith("обновлено") for v in report.values()), report)
+            self.assertTrue(all(ok for ok, _ in report.values()), report)
             self.assertGreaterEqual(data.last_update(), before)
 
     def test_shop_urls_are_official_https(self):
@@ -313,14 +315,14 @@ class MyTicketsTests(unittest.TestCase):
 
     def test_jackpot(self):
         r = self.check([1, 3, 10, 20, 22, 28, 46])
-        self.assertEqual((r.matches, r.prize), (7, "ДЖЕКПОТ"))
+        self.assertEqual((r.matches, r.prize), (7, "jackpot"))
 
     def test_partial_and_bonus(self):
         r = self.check([1, 3, 10, 5, 40, 41, 42])          # 3 + бонус 5
         self.assertEqual((r.matches, r.bonus), (3, True))
-        self.assertIn("денежный", r.prize)
+        self.assertEqual(r.prize, "cash")
         r = self.check([1, 3, 10, 40, 41, 42, 43])         # просто 3
-        self.assertEqual(r.prize, "бесплатный билет")
+        self.assertEqual(r.prize, "free")
         r = self.check([1, 3, 40, 41, 42, 43, 44])         # 2 — ничего
         self.assertEqual(r.prize, "")
         self.assertIn("без приза", r.text(core.LOTTO_MAX))
@@ -338,9 +340,9 @@ class MyTicketsTests(unittest.TestCase):
         d = core.parse_csv(text, core.LOTTO_649)
         day = date(2026, 10, 17)
         r = core.check_ticket(core.LOTTO_649, [5, 25, 1, 2, 3, 4], day, d)
-        self.assertEqual(r.prize, "бесплатный билет")
+        self.assertEqual(r.prize, "free")
         r = core.check_ticket(core.LOTTO_649, [5, 25, 16, 2, 3, 4], day, d)
-        self.assertIn("денежный", r.prize)
+        self.assertEqual(r.prize, "cash")
 
     def test_parse_numbers(self):
         self.assertEqual(core.parse_numbers("46, 1 3;10 20 22 28", core.LOTTO_MAX),
@@ -437,7 +439,7 @@ class Rules52Tests(unittest.TestCase):
         main, _ = core.parse_all(self.TEXT, core.LOTTO_MAX)
         r = core.check_ticket(core.LOTTO_MAX, [1, 2, 3, 4, 5, 51, 52],
                               date(2026, 4, 14), main)
-        self.assertEqual((r.matches, r.prize), (7, "ДЖЕКПОТ"))
+        self.assertEqual((r.matches, r.prize), (7, "jackpot"))
 
     def test_odds(self):
         self.assertEqual(core.LOTTO_MAX.odds(date(2026, 10, 20)), 133_784_560)
@@ -677,6 +679,153 @@ class MoneyTests(unittest.TestCase):
 
     def test_notify_is_safe_off_mac(self):
         data.notify('за"головок', "текст \\ с кавычкой \"")   # не падает
+
+
+
+class OfficialPrizeTests(unittest.TestCase):
+    """Призы и цены — по официальным таблицам OLG / Loto-Québec / BCLC (2026)."""
+
+    MAX = (HEADER_MAX + "\n"
+           "Lotto Max,1,0,2026-10-20,1,3,10,20,22,28,46,5\n")
+    S649 = ("PRODUCT,DRAW NUMBER,SEQUENCE NUMBER,DRAW DATE,NUMBER DRAWN 1,NUMBER DRAWN 2,"
+            "NUMBER DRAWN 3,NUMBER DRAWN 4,NUMBER DRAWN 5,NUMBER DRAWN 6,BONUS NUMBER\n"
+            "649,1,0,2026-10-17,5,25,26,27,29,46,16\n")
+
+    def res(self, game, nums):
+        text = self.MAX if game is core.LOTTO_MAX else self.S649
+        day = date(2026, 10, 20) if game is core.LOTTO_MAX else date(2026, 10, 17)
+        return core.check_ticket(game, nums, day, core.parse_csv(text, game))
+
+    def test_fixed_prizes_shown_as_amounts(self):
+        cases = [  # (игра, билет, приз, сумма $)
+            (core.LOTTO_MAX, [1, 3, 10, 5, 40, 41, 42], "cash", 20),    # 3 + бонус
+            (core.LOTTO_MAX, [1, 3, 10, 40, 41, 42, 43], "free", None),  # 3
+            (core.LOTTO_MAX, [1, 3, 10, 20, 41, 42, 43], "cash", None),  # 4 — из фонда
+            (core.LOTTO_MAX, [1, 3, 5, 40, 41, 42, 43], "", None),       # 2 + бонус — ничего
+            (core.LOTTO_649, [5, 25, 26, 1, 2, 3], "cash", 10),          # 3 из 6
+            (core.LOTTO_649, [5, 25, 26, 16, 2, 3], "cash", 10),         # 3 + бонус — те же 10
+            (core.LOTTO_649, [5, 25, 16, 1, 2, 3], "cash", 5),           # 2 + бонус
+            (core.LOTTO_649, [5, 25, 1, 2, 3, 4], "free", None),         # 2
+            (core.LOTTO_649, [5, 25, 26, 27, 2, 3], "cash", None),       # 4 — из фонда
+            (core.LOTTO_649, [5, 16, 1, 2, 3, 4], "", None),             # 1 + бонус
+        ]
+        for game, nums, prize, amount in cases:
+            r = self.res(game, nums)
+            self.assertEqual((r.prize, r.amount), (prize, amount), (game.key, nums))
+            text = r.text(game)
+            if amount:
+                self.assertIn(f"приз {amount} $", text)
+            elif prize == "cash":
+                self.assertIn("доля призового фонда", text)
+
+    def test_amount_in_all_languages(self):
+        r = self.res(core.LOTTO_MAX, [1, 3, 10, 5, 40, 41, 42])
+        try:
+            for lang, want in (("en", "$20 prize"), ("fr", "lot de 20 $")):
+                i18n.set_lang(lang)
+                self.assertIn(want, r.text(core.LOTTO_MAX))
+        finally:
+            i18n.set_lang("ru")
+
+    def test_price_by_draw_date(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict("os.environ", {"LOTTO_DATA_DIR": tmp}):
+            three = [[1, 2, 3, 4, 5, 6, k] for k in (7, 8, 9)]
+            data.add_tickets("LOTTOMAX", three, "2026-04-10", "2026-04-10")   # 5 $ за 3
+            data.add_tickets("LOTTOMAX", three, "2026-04-14", "2026-04-14")   # 6 $ за 4
+            data.add_tickets("649", [[1, 2, 3, 4, 5, 6]], "2026-04-10", "2026-04-11")
+            items = data.load_tickets()
+            old = sum(data.ticket_cost(t) for t in items if t["draw"] == "2026-04-10")
+            self.assertAlmostEqual(old, 5.0)
+            self.assertEqual([data.ticket_cost(t) for t in items if t["draw"] == "2026-04-14"],
+                             [1.5] * 3)
+            self.assertEqual(data.ticket_cost(items[-1]), 3.0)
+            # билет из файла без цены — тоже по дате тиража
+            data.import_tickets([{"game": "LOTTOMAX", "numbers": [9, 10, 11, 12, 13, 14, 15],
+                                  "draw": "2025-12-30"}])
+            self.assertAlmostEqual(data.load_tickets()[-1]["cost"], 5 / 3)
+
+
+class I18nTests(unittest.TestCase):
+    """Три языка: одинаковые ключи, одинаковые подстановки, нет пропусков в коде."""
+
+    def tearDown(self):
+        i18n.set_lang("ru")
+
+    def test_same_keys_and_placeholders(self):
+        import re
+        ru = i18n.STRINGS["ru"]
+        for lang in ("en", "fr"):
+            self.assertEqual(set(i18n.STRINGS[lang]), set(ru), lang)
+            for k, v in ru.items():
+                other = i18n.STRINGS[lang][k]
+                self.assertTrue(other.strip(), f"{lang}:{k} пусто")
+                self.assertEqual(sorted(re.findall(r"{(\w+)}", v)),
+                                 sorted(re.findall(r"{(\w+)}", other)), f"{lang}:{k}")
+
+    def test_every_key_used_in_code_exists(self):
+        import re
+        here = Path(__file__).resolve().parent.parent
+        used = set()
+        for f in ("lotto_app.py", "lotto_core.py", "lotto_data.py", "web/index.html",
+                  "web/lotto.js"):
+            src = (here / f).read_text(encoding="utf-8")
+            used |= set(re.findall(r"""\bT?t\(\s*["']([a-z0-9_]+\.[a-z0-9_.]+)["']""", src))
+            used |= set(re.findall(r'data-i18n(?:-ph)?="([a-z0-9_.]+)"', src))
+        missing = sorted(k for k in used if k not in i18n.STRINGS["ru"])
+        self.assertEqual(missing, [])
+        self.assertGreater(len(used), 150)
+
+    def test_web_copy_in_sync(self):
+        # web/i18n.js должен совпадать с i18n.json: иначе на iPhone тексты разойдутся.
+        here = Path(__file__).resolve().parent.parent
+        js = (here / "web" / "i18n.js").read_text(encoding="utf-8")
+        body = js.split("window.I18N = ", 1)[1].rstrip().rstrip(";")
+        self.assertEqual(json.loads(body), i18n.STRINGS,
+                         "web/i18n.js устарел — запустите python3 i18n.py")
+
+    def test_ticket_text_in_three_languages(self):
+        text = (HEADER_MAX + "\nLotto Max,1,0,2026-10-20,1,3,10,20,22,28,46,5\n")
+        main = core.parse_csv(text, core.LOTTO_MAX)
+        r = core.check_ticket(core.LOTTO_MAX, [1, 3, 10, 5, 40, 41, 42], date(2026, 10, 20), main)
+        got = {}
+        for lang in ("ru", "en", "fr"):
+            i18n.set_lang(lang)
+            got[lang] = r.text(core.LOTTO_MAX)
+        self.assertEqual(got["ru"], "3 из 7 + бонус — приз 20 $")
+        self.assertEqual(got["en"], "3 of 7 + bonus — $20 prize")
+        self.assertEqual(got["fr"], "3 sur 7 + compl. — lot de 20 $")
+
+    def test_errors_and_reasons_follow_language(self):
+        i18n.set_lang("en")
+        with self.assertRaisesRegex(ValueError, "must not repeat"):
+            core.parse_numbers("1 1 2 3 4 5 6", core.LOTTO_MAX)
+        self.assertIn("3 consecutive numbers",
+                      core.popular_reasons([4, 5, 6, 33, 40, 45, 50], core.LOTTO_MAX))
+        i18n.set_lang("fr")
+        self.assertEqual(core.strategy_name("random"), "Entièrement au hasard")
+        self.assertEqual(core.weekday_name(date(2026, 10, 20)), "mardi")
+
+    def test_dates_and_numbers(self):
+        day = date(2026, 10, 20)
+        for lang, want, num in (("ru", "20.10.2026", "1.50"), ("en", "2026-10-20", "1.50"),
+                                ("fr", "20/10/2026", "1,50")):
+            i18n.set_lang(lang)
+            self.assertEqual(i18n.d(day), want)
+            self.assertEqual(i18n.num(1.5), num)
+
+    def test_unknown_language_falls_back(self):
+        i18n.set_lang("de")
+        self.assertEqual(i18n.lang(), "ru")
+        self.assertEqual(i18n.t("нет.такого.ключа"), "нет.такого.ключа")
+
+    def test_old_saved_province_understood(self):
+        self.assertEqual(data.province_code("Квебек (Loto-Québec)"), "QC")
+        self.assertEqual(data.province_code("QC"), "QC")
+        self.assertEqual(data.province_code(None), "ON")
+        self.assertEqual(set(data.PROVINCES), {"ON", "BC", "MB", "AB", "QC", "ATL", "SK"})
+        for code in data.PROVINCES:
+            self.assertIn(f"prov.{code}", i18n.STRINGS["fr"])
 
 
 if __name__ == "__main__":

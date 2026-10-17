@@ -7,9 +7,27 @@
   const MAX_50_FROM = "2019-05-14";
   const MAX_52_FROM = "2026-04-14";
   const DRAW_WEEKDAYS = { "649": [3, 6], LOTTOMAX: [2, 5] }; // 0 — воскресенье (JS)
-  const WEEKDAY_RU = ["воскресенье", "понедельник", "вторник", "среда", "четверг",
-                      "пятница", "суббота"];
   const LINE_PRICE = { LOTTOMAX: 1.5, "649": 3.0 };
+
+  // ------------------------------------------------------------ переводы
+  // Тот же словарь i18n.json, что у программы для Mac.
+  let STR = { ru: {} }, LANG = "ru";
+  function setStrings(all, lang) { STR = all; LANG = all[lang] ? lang : "ru"; }
+  function setLang(lang) { LANG = STR[lang] ? lang : "ru"; }
+  function lang() { return LANG; }
+  function T(key, kw) {
+    let s = (STR[LANG] && STR[LANG][key]) || (STR.ru && STR.ru[key]) || key;
+    if (kw) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in kw ? String(kw[k]) : m));
+    return s;
+  }
+  function fmtDate(isoDay, key = "fmt.date") {
+    const [y, m, d] = isoDay.split("-");
+    return T(key).replace("%Y", y).replace("%m", m).replace("%d", d);
+  }
+  function num(x, digits = 2) {
+    const s = Number(x).toFixed(digits);
+    return LANG === "fr" ? s.replace(".", ",") : s;
+  }
 
   function maxBall(gameKey, day) {
     if (gameKey === "LOTTOMAX") {
@@ -98,38 +116,32 @@
   function popularReasons(ticket) {
     const t = [...ticket].sort((a, b) => a - b);
     const out = [];
-    if (t.filter((n) => n > 31).length < 2) out.push("почти все числа — дни месяца (1–31)");
+    if (t.filter((n) => n > 31).length < 2) out.push(T("pop.birthdays"));
     let run = 1, best = 1;
     for (let i = 1; i < t.length; i++) {
       run = t[i] === t[i - 1] + 1 ? run + 1 : 1;
       best = Math.max(best, run);
     }
-    if (best >= 3) out.push(`${best} числа подряд`);
+    if (best >= 3) out.push(T("pop.run", { n: best }));
     const s = new Set(t);
     outer: for (let i = 0; i < t.length - 3; i++) {
       for (let j = i + 1; j < t.length - 2; j++) {
         const step = t[j] - t[i];
         if (step > 1 && [0, 1, 2, 3].every((k) => s.has(t[i] + k * step))) {
-          out.push(`«лесенка» с шагом ${step}`);
+          out.push(T("pop.ladder", { step }));
           break outer;
         }
       }
     }
     const tails = {};
     for (const n of t) tails[n % 10] = (tails[n % 10] || 0) + 1;
-    if (Math.max(...Object.values(tails)) >= 4) out.push("4 и больше чисел с одной последней цифрой");
+    if (Math.max(...Object.values(tails)) >= 4) out.push(T("pop.tail"));
     return out;
   }
 
   // ------------------------------------------------------------ генерация
-  const STRATEGIES = {
-    hot: "Чаще выпадавшие (с учётом веса)",
-    top: "Строго самые частые",
-    cold: "Реже выпадавшие (с учётом веса)",
-    overdue: "Давно не выпадавшие",
-    mix: "Смесь: половина частых, половина редких",
-    random: "Полностью случайно",
-  };
+  const STRATEGIES = ["hot", "top", "cold", "overdue", "mix", "random"];
+  const strategyName = (k) => T("strat." + k);
 
   function weightedSample(pool, w, k, rnd) {
     pool = [...pool];
@@ -151,10 +163,10 @@
     const all = Object.keys(stats.numbers).map(Number);
     const fixed = new Set((opts.fixed || []).filter((n) => n in stats.numbers));
     const excluded = new Set((opts.excluded || []).filter((n) => !fixed.has(n)));
-    if (fixed.size > pick) throw new Error(`Закреплено ${fixed.size} чисел, а в билете только ${pick}.`);
+    if (fixed.size > pick) throw new Error(T("err.pinned", { n: fixed.size, pick }));
     const pool = all.filter((n) => !fixed.has(n) && !excluded.has(n));
     const need = pick - fixed.size;
-    if (pool.length < need) throw new Error("Слишком много исключённых чисел — не из чего выбрать.");
+    if (pool.length < need) throw new Error(T("err.excluded"));
     const strength = opts.strength ?? 1;
     const counts = {};
     for (const n of all) counts[n] = stats.numbers[n].count;
@@ -186,7 +198,7 @@
         const rest = pool.filter((n) => !part.includes(n));
         part = part.concat(weightedSample(rest, coldW(rest), need - hk, rnd));
       } else if (strategy === "random") part = weightedSample(pool, {}, need, rnd);
-      else throw new Error("Неизвестный способ: " + strategy);
+      else throw new Error("unknown strategy: " + strategy);
       const ticket = [...new Set([...fixed, ...part])].sort((a, b) => a - b);
       const key = ticket.join(",");
       if (seen.has(key)) continue;
@@ -198,44 +210,60 @@
   }
 
   // ------------------------------------------------------------ билеты
+  // Код приза: jackpot / cash / free; "" — приза нет.
   function prize(gameKey, pick, m, bonus) {
-    if (m === pick) return "ДЖЕКПОТ";
+    if (m === pick) return "jackpot";
     if (gameKey === "LOTTOMAX") {
-      if (m >= 4 || (m === 3 && bonus)) return "денежный приз (сумму смотрите на сайте)";
-      if (m === 3) return "бесплатный билет";
+      if (m >= 4 || (m === 3 && bonus)) return "cash";
+      if (m === 3) return "free";
     } else {
-      if (m >= 3 || (m === 2 && bonus)) return "денежный приз (сумму смотрите на сайте)";
-      if (m === 2) return "бесплатный билет";
+      if (m >= 3 || (m === 2 && bonus)) return "cash";
+      if (m === 2) return "free";
     }
     return "";
   }
 
+  // Постоянные призы (OLG, Loto-Québec, 2026); остальные — доля фонда.
+  function prizeAmount(gameKey, m, bonus) {
+    if (gameKey === "LOTTOMAX") return m === 3 && bonus ? 20 : null;
+    if (m === 3) return 10;
+    return m === 2 && bonus ? 5 : null;
+  }
+
   function checkTicket(gameKey, pick, numbers, drawDay, draws, extras = []) {
     const main = draws.find((d) => d[0] === drawDay);
-    if (!main) return { drawn: false, text: "ждёт тиража" };
+    if (!main) return { drawn: false, text: T("res.waiting") };
     const t = new Set(numbers);
     const m = main[1].filter((n) => t.has(n)).length;
     const bonus = main[2] !== null && main[2] !== undefined && t.has(main[2]);
     const mm = extras.filter((d) => d[0] === drawDay && d[1].length === t.size &&
                                     d[1].every((n) => t.has(n))).length;
     const pz = prize(gameKey, pick, m, bonus);
-    let text = `${m} из ${pick}` + (bonus ? " + бонус" : "") + (pz ? ` — ${pz}` : " — без приза");
-    if (mm) text += `; MaxMillions совпал целиком: ${mm}!`;
-    return { drawn: true, matches: m, bonus, prize: pz, maxmillions: mm, text };
+    const amount = prizeAmount(gameKey, m, bonus);
+    let text = T("res.matches", { m, pick }) + (bonus ? T("res.bonus") : "") +
+      (amount ? " — " + T("prize.fixed", { amount }) :
+        pz ? " — " + T("prize." + pz) : T("res.no_prize"));
+    if (mm) text += T("res.mm", { n: mm });
+    return { drawn: true, matches: m, bonus, prize: pz, maxmillions: mm, amount, text };
   }
 
-  function parseNumbers(text, gameKey, pick, day) {
+  function parseNumbers(text, gameKey, pick, day, title) {
     const nums = (text.match(/\d+/g) || []).map(Number);
     const top = maxBall(gameKey, day);
-    if (nums.length !== pick) throw new Error(`Нужно ${pick} чисел, а введено ${nums.length}.`);
-    if (new Set(nums).size !== nums.length) throw new Error("Числа в билете не должны повторяться.");
+    if (nums.length !== pick) throw new Error(T("err.count", { game: title || gameKey, pick, n: nums.length }));
+    if (new Set(nums).size !== nums.length) throw new Error(T("err.dup"));
     const bad = nums.filter((n) => n < 1 || n > top);
-    if (bad.length) throw new Error(`Числа должны быть от 1 до ${top}: не подходит ${bad.join(", ")}.`);
+    if (bad.length) throw new Error(T("err.range", { top, bad: bad.join(", ") }));
     return nums.sort((a, b) => a - b);
   }
 
   // ------------------------------------------------------------ деньги
-  function ticketCost(t) { return Number(t.cost ?? LINE_PRICE[t.game] ?? 0); }
+  // До тиража 14.04.2026 Lotto Max стоил 5 $ за 3 линии, потом 6 $ за 4.
+  function linePrice(gameKey, draw = "") {
+    if (gameKey === "LOTTOMAX" && draw && draw < MAX_52_FROM) return 5 / 3;
+    return LINE_PRICE[gameKey] ?? 0;
+  }
+  function ticketCost(t) { return Number(t.cost ?? linePrice(t.game, t.draw || "")); }
 
   function moneySummary(items, todayIso) {
     const today = parseIso(todayIso);
@@ -303,9 +331,12 @@
     });
   }
 
-  const api = { MAX_50_FROM, MAX_52_FROM, WEEKDAY_RU, LINE_PRICE, STRATEGIES, maxBall, comb,
+  // 0 — понедельник, как в Python.
+  const weekdayName = (isoDay, short) => T((short ? "wds." : "wd.") + ((parseIso(isoDay).getDay() + 6) % 7));
+  const api = { MAX_50_FROM, MAX_52_FROM, LINE_PRICE, STRATEGIES, strategyName, maxBall, comb,
+    setStrings, setLang, lang, T, fmtDate, num, weekdayName,
     iso, parseIso, ru, nextDraw, chi2sf, computeStats, ranked, popularReasons, generate,
-    prize, checkTicket, parseNumbers, ticketCost, moneySummary, backtest };
+    prize, prizeAmount, checkTicket, parseNumbers, linePrice, ticketCost, moneySummary, backtest };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Lotto = api;
 })(this);

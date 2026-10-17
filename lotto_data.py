@@ -17,6 +17,7 @@ import subprocess
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from i18n import t
 from lotto_core import GAMES, LOTTO_MAX_52_FROM, Game, count_draw_keys, count_draw_rows, parse_all, parse_csv
 
 SOURCE_URL = "https://www.playnow.com/resources/documents/downloadable-numbers/{key}.zip"
@@ -28,16 +29,30 @@ UPDATE_EVERY = timedelta(hours=3)
 
 # Официальные сайты, где продают Lotto Max и Lotto 6/49 (по провинции
 # проживания). Покупку программа НЕ делает — только открывает сайт.
+# Ключ — код провинции, название на нужном языке — в переводах prov.<код>.
 PROVINCES = {
-    "Онтарио (OLG)": "https://www.olg.ca/",
-    "Британская Колумбия (PlayNow)": "https://www.playnow.com/",
-    "Манитоба (PlayNow)": "https://www.playnow.com/",
-    "Альберта (PlayAlberta)": "https://www.playalberta.ca/",
-    "Квебек (Loto-Québec)": "https://loteries.lotoquebec.com/",
-    "Атлантические провинции (ALC)": "https://www.alc.ca/",
-    "Саскачеван (WCLC, онлайн-продаж нет)": "https://www.wclc.com/",
+    "ON": "https://www.olg.ca/",
+    "BC": "https://www.playnow.com/",
+    "MB": "https://www.playnow.com/",
+    "AB": "https://www.playalberta.ca/",
+    "QC": "https://loteries.lotoquebec.com/",
+    "ATL": "https://www.alc.ca/",
+    "SK": "https://www.wclc.com/",
 }
-DEFAULT_PROVINCE = "Онтарио (OLG)"
+DEFAULT_PROVINCE = "ON"
+# Как провинция хранилась в настройках до перевода на три языка.
+_OLD_PROVINCE_NAMES = {
+    "Онтарио (OLG)": "ON", "Британская Колумбия (PlayNow)": "BC", "Манитоба (PlayNow)": "MB",
+    "Альберта (PlayAlberta)": "AB", "Квебек (Loto-Québec)": "QC",
+    "Атлантические провинции (ALC)": "ATL", "Саскачеван (WCLC, онлайн-продаж нет)": "SK",
+}
+
+
+def province_code(saved) -> str:
+    """Код провинции из настроек; старые русские названия тоже понимает."""
+    if saved in PROVINCES:
+        return saved
+    return _OLD_PROVINCE_NAMES.get(saved, DEFAULT_PROVINCE)
 
 
 def bundled_dir() -> Path:
@@ -99,9 +114,7 @@ def save_checked(game: Game, text: str, folder: Path) -> int:
     """
     draws = parse_csv(text, game)
     if len(draws) < game.min_draws:
-        raise ValueError(
-            f"{game.title}: в файле разобрано только {len(draws)} тиражей "
-            f"(ожидалось не меньше {game.min_draws}). Файл не сохранён.")
+        raise ValueError(t("data.short", game=game.title, n=len(draws), min=game.min_draws))
     folder.mkdir(parents=True, exist_ok=True)
     target = csv_path(game, folder)
     tmp = target.with_suffix(".tmp")
@@ -165,13 +178,22 @@ def save_tickets(items: list[dict]) -> None:
     tmp.replace(target)
 
 
-# Цена одной линии (7 или 6 чисел) в канадских долларах на 2026 год:
-# Lotto Max — 6 $ за игру из 4 линий, Lotto 6/49 — 3 $ за линию.
+# Цена одной линии (7 или 6 чисел) в канадских долларах на 2026 год
+# (OLG, BCLC, Loto-Québec): Lotto Max — 6 $ за игру из 4 линий,
+# Lotto 6/49 — 3 $ за линию. До тиража 14.04.2026 Lotto Max стоил 5 $ за 3 линии.
 LINE_PRICE = {"LOTTOMAX": 1.5, "649": 3.0}
+LOTTO_MAX_OLD_LINE = 5 / 3
+
+
+def line_price(game_key: str, draw: str = "") -> float:
+    """Цена линии на тираж draw (ГГГГ-ММ-ДД); пустая дата — нынешняя цена."""
+    if game_key == "LOTTOMAX" and draw and draw < LOTTO_MAX_52_FROM.isoformat():
+        return LOTTO_MAX_OLD_LINE
+    return LINE_PRICE.get(game_key, 0.0)
 
 
 def ticket_cost(t: dict) -> float:
-    return float(t.get("cost", LINE_PRICE.get(t.get("game"), 0.0)))
+    return float(t.get("cost", line_price(t.get("game"), str(t.get("draw", "")))))
 
 
 def money_summary(items: list[dict], today: date) -> dict:
@@ -211,14 +233,14 @@ def over_limit(items: list[dict], today: date, extra: float = 0.0) -> bool:
 def set_won(item: dict, amount: float) -> None:
     """Записывает выигрыш, который человек увидел на сайте или в кассе."""
     if amount < 0:
-        raise ValueError("Выигрыш не может быть отрицательным.")
+        raise ValueError(t("err.neg_won"))
     items = load_tickets()
-    for t in items:
-        if t == item:
-            t["won"] = round(amount, 2)
+    for tk in items:
+        if tk == item:
+            tk["won"] = round(amount, 2)
             save_tickets(items)
             return
-    raise ValueError("Билет не найден — возможно, его удалили.")
+    raise ValueError(t("err.ticket_gone"))
 
 
 def notify(title: str, text: str) -> None:
@@ -247,7 +269,7 @@ def add_tickets(game_key: str, tickets: list[list[int]], bought: str,
         have.add(key)
         items.append({"game": game_key, "numbers": sorted(nums),
                       "bought": bought, "draw": draw,
-                      "cost": LINE_PRICE.get(game_key, 0.0)})
+                      "cost": line_price(game_key, draw)})
         added += 1
     if added:
         save_tickets(items)
@@ -273,7 +295,7 @@ def import_tickets(incoming: list) -> int:
             continue
         have.add((game, tuple(nums), draw))
         rec = {"game": game, "numbers": nums, "bought": str(t.get("bought") or draw),
-               "draw": draw, "cost": float(t.get("cost", LINE_PRICE[game]))}
+               "draw": draw, "cost": float(t.get("cost", line_price(game, draw)))}
         if t.get("won"):
             rec["won"] = float(t["won"])
         items.append(rec)
@@ -290,17 +312,17 @@ def remove_ticket(item: dict) -> None:
         save_tickets(items)
 
 
-def update_all(folder: Path | None = None) -> dict[str, str]:
-    """Обновляет все игры. Возвращает итог по каждой — для показа человеку."""
+def update_all(folder: Path | None = None) -> dict[str, tuple[bool, str]]:
+    """Обновляет все игры. Итог по каждой: (успех, текст для человека)."""
     folder = folder or user_dir()
     report = {}
     for game in GAMES.values():
         try:
             n = save_checked(game, download_csv(game), folder)
-            report[game.title] = f"обновлено, тиражей: {n}"
+            report[game.title] = (True, t("data.ok", n=n))
         except Exception as e:  # сеть, формат — показываем, но не падаем
-            report[game.title] = f"не удалось: {e}"
-    if folder == user_dir() and all(v.startswith("обновлено") for v in report.values()):
+            report[game.title] = (False, t("data.fail", e=e))
+    if folder == user_dir() and all(ok for ok, _ in report.values()):
         save_settings(last_update=datetime.now().isoformat(timespec="seconds"))
     return report
 

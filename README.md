@@ -1,14 +1,15 @@
 # Lotto Generator — генератор чисел Lotto Max и Lotto 6/49 для Mac
 
-Программа для личного пользования.
-
-* **Mac:** [скачать для Apple M1/M2/M3/M4](https://github.com/simafon1-cyber/lotto-generator/releases/download/lottery-latest/LottoGenerator-mac-apple-silicon.zip) ·
-  [скачать для Intel](https://github.com/simafon1-cyber/lotto-generator/releases/download/lottery-latest/LottoGenerator-mac-intel.zip)
-* **iPhone:** https://simafon1-cyber.github.io/lotto-generator/ — в Safari
-  «Поделиться» → «На экран Домой»; или приложение через Xcode:
-  [ios/УСТАНОВКА_IPHONE.md](ios/УСТАНОВКА_IPHONE.md)
+Программа для личного пользования. К торговой системе в этом репозитории
+отношения не имеет.
 
 ## Что умеет
+
+* **Три языка: русский, английский, французский** — вкладка «🌐 Язык»
+  (на iPhone — кнопка 🌐 внизу). Выбор запоминается.
+* **«О программе»** — что программа делает и чего не делает, и
+  предупреждение об ответственности (показывается один раз при первом
+  запуске).
 
 * Знает **всю историю тиражей** с официального сайта лотереи BCLC:
   Lotto 6/49 с 12.06.1982, Lotto Max с 25.09.2009.
@@ -64,7 +65,7 @@
 ## Как скачать и запустить
 
 1. Откройте страницу выпуска:
-   https://github.com/simafon1-cyber/lotto-generator/releases/tag/lottery-latest
+   https://github.com/simafon1-cyber/repp/releases/tag/lottery-latest
 2. Скачайте файл для своего Mac:
    * Apple M1/M2/M3/M4 → `LottoGenerator-mac-apple-silicon.zip`
    * Intel → `LottoGenerator-mac-intel.zip`
@@ -93,4 +94,4 @@ Lotto 6/49 — 1 к 13 983 816; Lotto Max (7 из 52) — 1 к 133 784 560 на
 * `lotto_data.py` — скачивание и проверка файлов BCLC.
 * `lotto_app.py` — окно (tkinter).
 * `tests/test_lotto.py` — тесты: `python3 tests/test_lotto.py`.
-* Сборка для Mac: `.github/workflows/mac.yml`; сайт для iPhone: `.github/workflows/site.yml`.
+* Сборка: `.github/workflows/lottery-mac.yml`.

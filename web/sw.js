@@ -1,6 +1,6 @@
 // Работа без интернета: оболочка приложения из кэша, тиражи — сначала из сети.
-const SHELL = "lotto-shell-v1";
-const FILES = ["./", "index.html", "lotto.js", "manifest.webmanifest", "icon-180.png", "icon-192.png"];
+const SHELL = "lotto-shell-v2";
+const FILES = ["./", "index.html", "lotto.js", "i18n.js", "manifest.webmanifest", "icon-180.png", "icon-192.png"];
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
 });

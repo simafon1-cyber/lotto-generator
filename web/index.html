@@ -141,6 +141,11 @@ td, th { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: rig
 td:first-child, th:first-child { text-align: left; }
 th { font-size: 12px; color: var(--muted); }
 .note { color: var(--muted); font-size: 13px; }
+.pre { white-space: pre-line; }
+.warn-text { font-weight: 700; color: #8a2a12; }
+.card.warn { border: 2px solid var(--red-2); background: #fff4ee; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .warn-text { color: #ffb59c; }
+  :root:not([data-theme="light"]) .card.warn { background: #3a1a12; } }
 .banner { display: none; margin: 14px 0; padding: 14px; border-radius: 16px; font-weight: 700;
   color: #3b2600; background: linear-gradient(180deg, var(--gold-1), var(--gold-2));
   box-shadow: 0 6px 16px rgba(0,0,0,.3); }
@@ -158,8 +163,9 @@ nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; z-index: 5;
   background: linear-gradient(180deg, rgba(10,63,34,.92), rgba(6,42,23,.98));
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   border-top: 2px solid var(--gold-3); }
-nav button { flex: 1; border: 0; background: none; padding: 6px 2px 8px; font-size: 11px;
-  color: var(--onfelt-muted); border-radius: 12px; }
+nav button { flex: 1; min-width: 0; border: 0; background: none; padding: 6px 1px 8px;
+  font-size: 10px; color: var(--onfelt-muted); border-radius: 12px; overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
 nav button b { display: block; font-size: 22px; line-height: 1.1; }
 nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233,163,.12); }
 </style>
@@ -168,7 +174,7 @@ nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233
 <header>
   <div class="logo"><span>7</span><span>52</span><span>49</span></div>
   <h1>Lotto Generator</h1>
-  <div class="sub" id="updated">Загружаю тиражи…</div>
+  <div class="sub" id="updated" data-i18n="web.loading">Загружаю тиражи…</div>
 </header>
 <main>
   <div class="seg" id="gameSeg">
@@ -179,40 +185,51 @@ nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233
 
   <!-- Главная -->
   <section id="s-home" class="on">
+    <div class="card warn" id="disclaimerCard" style="display:none">
+      <h2 data-i18n="about.disclaimer_title"></h2>
+      <p data-i18n="about.disclaimer"></p>
+      <button class="btn go" id="btnAccept" data-i18n="about.accept"></button>
+    </div>
     <div id="lastCards"></div>
     <div class="big-actions">
-      <button class="btn" id="btnGen10">🎲 Сгенерировать 10 вариантов</button>
-      <button class="btn alt" id="btnShop">🛒 Открыть сайт для покупки</button>
+      <button class="btn" id="btnGen10" data-i18n="gen.btn10"></button>
+      <button class="btn alt" id="btnShop" data-i18n="gen.shop"></button>
     </div>
     <div class="card">
-      <label>Где покупаете
+      <label><span data-i18n="home.where"></span>
         <select id="province"></select></label>
-      <p class="note">Программа ничего не покупает и не входит в ваш аккаунт: откроет
-      официальный сайт, а числа вы вписываете сами.</p>
+      <p class="note" data-i18n="shop.note"></p>
+    </div>
+    <div class="card about">
+      <h2 data-i18n="about.title"></h2>
+      <p class="pre" data-i18n="about.body"></p>
+      <h2 data-i18n="about.disclaimer_title"></h2>
+      <p class="warn-text" data-i18n="about.disclaimer"></p>
     </div>
   </section>
 
   <!-- Генератор -->
   <section id="s-gen">
     <div class="card">
-      <label>Способ <select id="strategy"></select></label>
-      <label style="display:block;margin-top:8px">Период <select id="period"></select></label>
+      <label><span data-i18n="gen.method"></span> <select id="strategy"></select></label>
+      <label style="display:block;margin-top:8px"><span data-i18n="gen.period"></span>
+        <select id="period"></select></label>
       <div class="row">
-        <label>Сколько <input type="number" id="count" min="1" max="50" value="10"></label>
+        <label><span data-i18n="gen.count_web"></span>
+          <input type="number" id="count" min="1" max="50" value="10"></label>
       </div>
       <label class="chk"><input type="checkbox" id="avoidPop" checked>
-        <span>Избегать комбинаций, которые часто выбирают люди (дни рождения, ряды,
-        «лесенки») — шанс тот же, но выигрыш реже делить</span></label>
+        <span><b data-i18n="gen.avoid"></b><br><span class="note" data-i18n="gen.avoid_hint"></span></span></label>
       <div class="note" id="marks"></div>
-      <button class="btn" id="btnGen">Сгенерировать</button>
+      <button class="btn" id="btnGen" data-i18n="gen.generate"></button>
     </div>
     <div class="card" id="genCard" style="display:none">
-      <h2>Варианты — отметьте купленные</h2>
+      <h2 data-i18n="gen.list_title"></h2>
       <div id="genList"></div>
-      <button class="btn go" id="btnSave">✅ Сохранить купленные</button>
+      <button class="btn go" id="btnSave" data-i18n="gen.save"></button>
       <div class="row">
-        <button class="btn ghost" id="btnAll">Отметить все</button>
-        <button class="btn ghost" id="btnCopy">Копировать</button>
+        <button class="btn ghost" id="btnAll" data-i18n="gen.mark_all"></button>
+        <button class="btn ghost" id="btnCopy" data-i18n="gen.copy"></button>
       </div>
       <div class="note" id="saveInfo"></div>
     </div>
@@ -221,28 +238,30 @@ nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233
   <!-- Мои билеты -->
   <section id="s-mine">
     <div class="card">
-      <h2 id="mineTitle">Мои билеты</h2>
+      <h2 id="mineTitle"></h2>
       <div class="money" id="money"></div>
       <div class="row" style="margin-top:8px">
-        <label>Лимит в неделю, $ (0 — нет) <input type="number" id="limit" min="0" step="5"></label>
+        <label><span data-i18n="mine.weblimit"></span>
+          <input type="number" id="limit" min="0" step="5"></label>
       </div>
     </div>
-    <div class="card"><div id="mineList"></div></div>
+    <div class="card"><div id="mineList"></div>
+      <p class="note" data-i18n="mine.note"></p></div>
     <div class="card">
-      <h2>Добавить купленный билет</h2>
-      <input type="text" id="manNums" inputmode="numeric" placeholder="Числа через пробел">
+      <h2 data-i18n="man.title"></h2>
+      <input type="text" id="manNums" inputmode="numeric" data-i18n-ph="man.nums_ph">
       <div class="row" style="margin-top:8px">
-        <label>Дата тиража <input type="date" id="manDate"></label>
+        <label><span data-i18n="man.date_web"></span> <input type="date" id="manDate"></label>
       </div>
-      <button class="btn ghost" id="btnMan">Добавить</button>
+      <button class="btn ghost" id="btnMan" data-i18n="man.add"></button>
       <div class="note" id="manInfo"></div>
     </div>
     <div class="card">
-      <h2>Перенос между Mac и iPhone</h2>
-      <p class="note">Формат файла тот же, что у программы для Mac (my_tickets.json).</p>
+      <h2 data-i18n="transfer.title"></h2>
+      <p class="note" data-i18n="transfer.note"></p>
       <div class="row">
-        <button class="btn ghost" id="btnExport">Сохранить файл</button>
-        <button class="btn ghost" id="btnImport">Загрузить файл</button>
+        <button class="btn ghost" id="btnExport" data-i18n="transfer.save"></button>
+        <button class="btn ghost" id="btnImport" data-i18n="transfer.load"></button>
       </div>
       <input type="file" id="importFile" accept=".json,application/json" hidden>
     </div>
@@ -251,9 +270,8 @@ nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233
   <!-- Частоты -->
   <section id="s-nums">
     <div class="card">
-      <h2>Сколько раз выпадало каждое число</h2>
-      <p class="note">Красное — чаще, синее — реже. Нажатие: закрепить (войдёт в каждый
-      билет) → исключить → обычное.</p>
+      <h2 data-i18n="nums.title"></h2>
+      <p class="note" data-i18n="nums.hint"></p>
       <div class="grid" id="grid"></div>
     </div>
   </section>
@@ -261,53 +279,66 @@ nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233
   <!-- Проверка на истории -->
   <section id="s-test">
     <div class="card">
-      <h2>Проверка на истории</h2>
-      <p class="note">Для каждого из последних тиражей частоты считаются только по
-      тиражам до него, каждым способом делается 10 билетов, и считается, сколько чисел
-      совпало. Если бы «частые» числа помогали, у них совпадало бы больше.</p>
+      <h2 data-i18n="tab.test"></h2>
+      <p class="note" data-i18n="test.intro"></p>
       <div class="row">
-        <label>Тиражей <select id="btLast"><option>100</option><option selected>300</option>
-          <option>600</option></select></label>
+        <label><span data-i18n="test.draws"></span> <select id="btLast"><option>100</option>
+          <option selected>300</option><option>600</option></select></label>
       </div>
-      <button class="btn" id="btnTest">Запустить проверку</button>
+      <button class="btn" id="btnTest" data-i18n="test.run"></button>
       <div id="btOut"></div>
     </div>
   </section>
 
   <!-- Честно о шансах -->
   <section id="s-odds"><div class="card" id="odds"></div></section>
+
+  <!-- Язык -->
+  <section id="s-lang">
+    <div class="card">
+      <h2>Язык · Language · Langue</h2>
+      <p class="note" data-i18n="lang.note"></p>
+      <div id="langBtns"></div>
+    </div>
+    <div class="card about">
+      <h2 data-i18n="about.title"></h2>
+      <p class="pre" data-i18n="about.body"></p>
+      <h2 data-i18n="about.disclaimer_title"></h2>
+      <p class="warn-text" data-i18n="about.disclaimer"></p>
+    </div>
+  </section>
 </main>
 
 <nav id="nav">
-  <button data-s="home" class="on"><b>🏠</b>Главная</button>
-  <button data-s="gen"><b>🎲</b>Варианты</button>
-  <button data-s="mine"><b>🎟️</b>Мои</button>
-  <button data-s="nums"><b>🔢</b>Числа</button>
-  <button data-s="test"><b>🧪</b>Проверка</button>
-  <button data-s="odds"><b>ℹ️</b>Шансы</button>
+  <button data-s="home" class="on"><b>🏠</b><span data-i18n="nav.home"></span></button>
+  <button data-s="gen"><b>🎲</b><span data-i18n="nav.gen"></span></button>
+  <button data-s="mine"><b>🎟️</b><span data-i18n="nav.mine"></span></button>
+  <button data-s="nums"><b>🔢</b><span data-i18n="nav.nums"></span></button>
+  <button data-s="test"><b>🧪</b><span data-i18n="nav.test"></span></button>
+  <button data-s="odds"><b>ℹ️</b><span data-i18n="nav.odds"></span></button>
+  <button data-s="lang"><b>🌐</b><span data-i18n="nav.lang"></span></button>
 </nav>
 
+<script src="i18n.js"></script>
 <script src="lotto.js"></script>
 <script>
 "use strict";
 const L = window.Lotto;
+const T = (k, kw) => L.T(k, kw);
 const $ = (id) => document.getElementById(id);
-const PROVINCES = {
-  "Онтарио (OLG)": "https://www.olg.ca/",
-  "Британская Колумбия (PlayNow)": "https://www.playnow.com/",
-  "Манитоба (PlayNow)": "https://www.playnow.com/",
-  "Альберта (PlayAlberta)": "https://www.playalberta.ca/",
-  "Квебек (Loto-Québec)": "https://loteries.lotoquebec.com/",
-  "Атлантические провинции (ALC)": "https://www.alc.ca/",
-  "Саскачеван (WCLC, онлайн-продаж нет)": "https://www.wclc.com/",
-};
+// Код провинции -> официальный сайт; название — в переводах prov.<код>.
+const PROVINCES = { ON: "https://www.olg.ca/", BC: "https://www.playnow.com/",
+  MB: "https://www.playnow.com/", AB: "https://www.playalberta.ca/",
+  QC: "https://loteries.lotoquebec.com/", ATL: "https://www.alc.ca/", SK: "https://www.wclc.com/" };
+const OLD_PROVINCES = { "Онтарио (OLG)": "ON", "Британская Колумбия (PlayNow)": "BC",
+  "Манитоба (PlayNow)": "MB", "Альберта (PlayAlberta)": "AB", "Квебек (Loto-Québec)": "QC",
+  "Атлантические провинции (ALC)": "ATL", "Саскачеван (WCLC, онлайн-продаж нет)": "SK" };
 // Внутри приложения из Xcode страница открыта из файла — тиражи берём с
 // открытой страницы GitHub. В браузере — рядом лежащий data.json.
 const REMOTE_DATA = "https://simafon1-cyber.github.io/lotto-generator/data.json";
 const DATA_URL = location.protocol === "https:" || location.protocol === "http:" ? "data.json" : REMOTE_DATA;
-const PERIODS = { all: "Всё время", y10: "Последние 10 лет", y5: "Последние 5 лет",
-  y1: "Последний год", n100: "Последние 100 тиражей", n50: "Последние 50 тиражей",
-  r52: "С 14.04.2026 (Lotto Max 1–52)" };
+const PERIODS = ["all", "y10", "y5", "y1", "n100", "n50", "max52"];
+const LANGS = [["ru", "🇷🇺"], ["en", "🇬🇧"], ["fr", "🇫🇷"]];
 
 // ---------- хранилище (может быть недоступно — тогда работаем без него)
 function load(key, dflt) {
@@ -318,12 +349,37 @@ function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } ca
 let settings = load("lotto.settings", {});
 let tickets = load("lotto.tickets", []);
 const setSetting = (k, v) => { settings[k] = v; save("lotto.settings", settings); };
+if (settings.province in OLD_PROVINCES) setSetting("province", OLD_PROVINCES[settings.province]);
+
+// Язык: сохранённый, иначе язык телефона (ru/en/fr), иначе русский.
+function startLang() {
+  if (settings.lang) return settings.lang;
+  const sys = (navigator.language || "ru").slice(0, 2);
+  return ["ru", "en", "fr"].includes(sys) ? sys : "ru";
+}
+L.setStrings(window.I18N, startLang());
+document.documentElement.lang = L.lang();
 
 let DATA = null, game = settings.game || "LOTTOMAX", generated = [], marked = new Set();
 const fixed = new Set(), excluded = new Set();
 const today = () => L.iso(new Date());
 const G = () => DATA.games[game];
-const money = (x) => x.toFixed(2) + " $";
+const money = (x) => L.num(x) + " $";
+const D = (iso) => L.fmtDate(iso);
+
+// ---------- тексты из разметки (data-i18n)
+function applyStatic() {
+  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = T(el.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = T(el.dataset.i18nPh); });
+  $("strategy").innerHTML = L.STRATEGIES.map((k) => `<option value="${k}">${L.strategyName(k)}</option>`).join("");
+  $("strategy").value = settings.strategy || "hot";
+  const prov = PROVINCES[settings.province] ? settings.province : "ON";
+  $("province").innerHTML = Object.keys(PROVINCES).map((c) => `<option value="${c}">${T("prov." + c)}</option>`).join("");
+  $("province").value = prov;
+  $("langBtns").innerHTML = LANGS.map(([c, flag]) =>
+    `<button class="btn ${c === L.lang() ? "go" : ""}" data-lang="${c}">${flag} ${window.I18N[c]["lang.name"]}${c === L.lang() ? " ✓" : ""}</button>`).join("");
+  document.title = "Lotto Generator";
+}
 
 // ---------- данные
 async function loadData(force) {
@@ -331,16 +387,20 @@ async function loadData(force) {
     const r = await fetch(DATA_URL + (force ? "?t=" + Date.now() : ""), { cache: force ? "reload" : "default" });
     DATA = await r.json();
     save("lotto.data", DATA);
-    const u = new Date(DATA.updated);
-    $("updated").textContent = "Тиражи обновлены: " + u.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) +
-      " · обновляются сами каждые 3 часа";
+    showUpdated();
     render();
     newDrawBanner();
   } catch (e) {
     const cached = load("lotto.data", null);       // без интернета — последние известные
     if (cached && !DATA) { DATA = cached; render(); }
-    $("updated").textContent = "Нет связи — показаны тиражи, загруженные раньше. Проверьте интернет.";
+    $("updated").textContent = T("web.offline");
   }
+}
+function showUpdated() {
+  if (!DATA) return;
+  const u = new Date(DATA.updated);
+  const loc = { ru: "ru-RU", en: "en-CA", fr: "fr-CA" }[L.lang()];
+  $("updated").textContent = T("web.updated", { when: u.toLocaleString(loc, { dateStyle: "short", timeStyle: "short" }) });
 }
 
 function periodDraws() {
@@ -352,7 +412,7 @@ function periodDraws() {
   if (p === "y1") return d.filter((x) => x[0] >= since(1));
   if (p === "n100") return d.slice(-100);
   if (p === "n50") return d.slice(-50);
-  if (p === "r52") return d.filter((x) => x[0] >= L.MAX_52_FROM);
+  if (p === "max52") return d.filter((x) => x[0] >= L.MAX_52_FROM);
   return d;
 }
 const stats = () => L.computeStats(game, G().pick, periodDraws());
@@ -361,7 +421,7 @@ const stats = () => L.computeStats(game, G().pick, periodDraws());
 function ballsHtml(nums, bonus, hits) {
   const h = new Set(hits || []);
   return '<div class="balls">' + nums.map((n) => `<span class="ball${h.has(n) ? " hit" : ""}">${n}</span>`).join("") +
-    (bonus != null ? `<span class="ball b" title="бонус">${bonus}</span>` : "") + "</div>";
+    (bonus != null ? `<span class="ball b" title="${T("col.bonus")}">${bonus}</span>` : "") + "</div>";
 }
 function renderHome() {
   let html = "";
@@ -369,26 +429,25 @@ function renderHome() {
     const g = DATA.games[key], last = g.draws[g.draws.length - 1];
     const mine = tickets.filter((t) => t.game === key && t.draw === last[0]);
     const wait = tickets.filter((t) => t.game === key && t.draw > last[0]).length;
-    let res = "Ваших билетов на этот тираж нет.";
+    let res = T("board.none");
     if (mine.length) {
       const rs = mine.map((t) => L.checkTicket(key, g.pick, t.numbers, last[0], g.draws, g.extras));
-      const best = Math.max(...rs.map((r) => r.matches));
-      const cash = rs.filter((r) => r.prize && r.prize !== "бесплатный билет").length;
-      const free = rs.filter((r) => r.prize === "бесплатный билет").length;
-      res = `Ваших билетов: ${mine.length} · лучший ${best} из ${g.pick} · денежных призов: ${cash} · бесплатных: ${free}`;
+      res = T("board.summary", { n: mine.length, best: Math.max(...rs.map((r) => r.matches)), pick: g.pick,
+        cash: rs.filter((r) => r.prize === "cash" || r.prize === "jackpot").length,
+        free: rs.filter((r) => r.prize === "free").length });
     }
     const nd = L.nextDraw(key, today());
-    html += `<div class="card draw"><h2>${g.title} · ${L.ru(last[0])}</h2>${ballsHtml(last[1], last[2])}
-      <div>${res}</div><div class="note">Следующий тираж: ${nd === today() ? "сегодня" : L.ru(nd)}, около 22:30 по Торонто${wait ? ` · ваших билетов ждут: ${wait}` : ""}</div></div>`;
+    const when = nd === today() ? T("status.today") : `${L.weekdayName(nd)} ${D(nd)}`;
+    html += `<div class="card draw"><h2>${g.title} · ${L.weekdayName(last[0], true)} ${D(last[0])}</h2>${ballsHtml(last[1], last[2])}
+      <div>${res}</div><div class="note">${T("home.next", { when })}${wait ? T("home.wait", { n: wait }) : ""}</div></div>`;
   }
   $("lastCards").innerHTML = html;
 }
 
 // ---------- генератор
 function renderMarks() {
-  $("marks").textContent = (fixed.size || excluded.size)
-    ? `Закреплены: ${[...fixed].sort((a, b) => a - b).join(", ") || "нет"} · исключены: ${[...excluded].sort((a, b) => a - b).join(", ") || "нет"} (вкладка «Числа»)`
-    : "";
+  const list = (s) => [...s].sort((a, b) => a - b).join(", ") || T("none");
+  $("marks").textContent = (fixed.size || excluded.size) ? T("gen.marks", { f: list(fixed), x: list(excluded) }) : "";
 }
 function doGenerate(n) {
   const st = stats();
@@ -398,7 +457,7 @@ function doGenerate(n) {
       avoid: tickets.filter((t) => t.game === game).map((t) => t.numbers) });
   } catch (e) { alert(e.message); return; }
   marked = new Set();
-  $("saveInfo").textContent = generated.length < n ? "Новых вариантов меньше, чем просили: остальные уже куплены или похожи на популярные." : "";
+  $("saveInfo").textContent = generated.length < n ? T("gen.fewer") : "";
   renderGen();
   $("genCard").style.display = "";
 }
@@ -410,7 +469,7 @@ function renderGen() {
     for (const d of g.draws) { const m = d[1].filter((x) => s.has(x)).length; if (m >= 4) m4++; else if (m === 3) m3++; }
     return `<label class="ticket"><input type="checkbox" data-i="${i}" ${marked.has(i) ? "checked" : ""}>
       <div><div class="nums">${t.map((x) => `<span>${x}</span>`).join("")}</div>
-      <div class="meta">в истории совпало бы: 4+ — ${m4} раз, 3 — ${m3} раз</div></div></label>`;
+      <div class="meta">${T("gen.hist_web", { m4, m3 })}</div></div></label>`;
   }).join("");
 }
 
@@ -426,16 +485,18 @@ function renderMine() {
     if (r.prize || r.maxmillions) won++;
     const d = g.draws.find((x) => x[0] === t.draw);
     return `<div class="ticket mine${r.prize ? " win" : ""}"><div style="flex:1">
-      <div class="meta">${g.title} · тираж ${L.ru(t.draw)} · куплен ${L.ru(t.bought)} · ${money(L.ticketCost(t))}${t.won ? " · выиграно " + money(Number(t.won)) : ""}</div>
+      <div class="meta">${T("mine.meta", { game: g.title, draw: D(t.draw), bought: D(t.bought), cost: money(L.ticketCost(t)) })}${t.won ? T("mine.meta_won", { won: money(Number(t.won)) }) : ""}</div>
       ${ballsHtml(t.numbers, null, d ? d[1] : [])}
       <div>${r.text}</div>
-      <div class="row" style="margin-top:6px"><button class="btn ghost" data-won="${i}">Записать выигрыш</button>
-      <button class="btn ghost" data-del="${i}">Удалить</button></div></div></div>`;
-  }).join("") : '<p class="note">Пока пусто. Отметьте купленные варианты галочками и нажмите «Сохранить купленные».</p>';
+      <div class="row" style="margin-top:6px"><button class="btn ghost" data-won="${i}">${T("mine.set_won").replace("…", "")}</button>
+      <button class="btn ghost" data-del="${i}">${T("mine.delete")}</button></div></div></div>`;
+  }).join("") : `<p class="note">${T("mine.empty")}</p>`;
   const m = L.moneySummary(tickets, today());
   const lim = Number(settings.limit || 0);
-  $("mineTitle").textContent = `Мои билеты: ${tickets.length} · ждут тиража: ${waiting} · с призом: ${won}`;
-  $("money").textContent = `Потрачено: неделя ${money(m.week)}${lim ? " из " + lim + " $" : ""} · месяц ${money(m.month)} · всего ${money(m.total)} · выиграно ${money(m.won)} · итог ${(m.won - m.total >= 0 ? "+" : "") + money(m.won - m.total)}`;
+  const net = m.won - m.total;
+  $("mineTitle").textContent = T("mine.title", { n: tickets.length, w: waiting, p: won });
+  $("money").textContent = T("mine.money_web", { week: money(m.week), of: lim ? T("mine.money_of", { lim }) : "",
+    month: money(m.month), total: money(m.total), won: money(m.won), net: (net >= 0 ? "+" : "−") + money(Math.abs(net)) });
 }
 function addTickets(gameKey, list, bought, draw) {
   let n = 0;
@@ -444,7 +505,7 @@ function addTickets(gameKey, list, bought, draw) {
     const k = gameKey + "|" + nums.join(",") + "|" + draw;
     if (have.has(k)) continue;
     have.add(k);
-    tickets.push({ game: gameKey, numbers: [...nums].sort((a, b) => a - b), bought, draw, cost: L.LINE_PRICE[gameKey] });
+    tickets.push({ game: gameKey, numbers: [...nums].sort((a, b) => a - b), bought, draw, cost: L.linePrice(gameKey, draw) });
     n++;
   }
   save("lotto.tickets", tickets);
@@ -479,30 +540,33 @@ function renderGrid() {
 function renderOdds() {
   const st = stats(), g = G();
   const top = L.ranked(st).slice(0, 5), low = L.ranked(st, false).slice(0, 5);
-  const odds = L.comb(L.maxBall(game, today()), g.pick).toLocaleString("ru-RU");
-  $("odds").innerHTML = `<h2>Честно о шансах — ${g.title}</h2>
-    <p>Главный приз одной линией: <b>1 к ${odds}</b>${game === "LOTTOMAX" ? ". Одна игра за 6 $ — это 4 линии, то есть около 1 к " + Math.round(L.comb(52, 7) / 4).toLocaleString("ru-RU") + " на игру" : ""}. От выбора чисел это не зависит.</p>
-    <p>В выбранном периоде ${st.draws.length} тиражей; каждое число в среднем должно было выпасть около ${Math.round(st.expected)} раз.<br>
-    Чаще всех: ${top.map((s) => `${s.number} (${s.count})`).join(", ")}<br>
-    Реже всех: ${low.map((s) => `${s.number} (${s.count})`).join(", ")}</p>
-    <p>Проверка «похоже ли на чистую случайность» (хи-квадрат): вероятность такого разброса случайно ≈ ${Math.round(st.p * 100)}%. ${st.p >= 0.05 ? "Обычное дело для честной лотереи." : "Чуть больше обычного, но на будущие тиражи это не влияет."}</p>
-    <p>У шаров нет памяти: частые числа не «горячие», редкие не «должны» выпасть. Единственное, что реально влияет на деньги, — не выбирать то, что выбирают все (дни рождения, ряды), чтобы при выигрыше не делить джекпот.</p>
-    <p class="note">Суммы призов и число победителей в официальных данных BCLC не публикуются — сверяйте сумму на сайте лотереи.</p>`;
+  const loc = { ru: "ru-RU", en: "en-CA", fr: "fr-CA" }[L.lang()];
+  const odds = L.comb(L.maxBall(game, today()), g.pick).toLocaleString(loc);
+  const lines = (x) => x.replace(/\n+$/, "");
+  $("odds").innerHTML = `<h2>${T("odds.web_title", { game: g.title })}</h2>
+    <p>${lines(T("odds.jackpot", { game: g.title, pick: g.pick, odds }))}${game === "LOTTOMAX" ? T("odds.web_play", { odds: Math.round(L.comb(52, 7) / 4).toLocaleString(loc) }) : ""}. ${lines(T("odds.same"))}</p>
+    <p>${lines(T("odds.period", { n: st.draws.length, exp: Math.round(st.expected) }))}<br>
+    ${lines(T("odds.top", { list: top.map((s) => `${s.number} (${s.count})`).join(", ") }))}<br>
+    ${lines(T("odds.low", { list: low.map((s) => `${s.number} (${s.count})`).join(", ") }))}</p>
+    <p>${lines(T("odds.chi", { p: Math.round(st.p * 100) + "%" }))} ${st.p >= 0.05 ? T("odds.fair") : T("odds.unusual")}</p>
+    <p>${lines(T("odds.memory"))}</p>
+    <p>${lines(T("odds.tip"))}</p>
+    <p class="note">${lines(T("odds.no_amounts"))}</p>`;
 }
 
 // ---------- проверка на истории
 function runTest() {
   const g = G(), last = Math.min(Number($("btLast").value), g.draws.length - 1);
-  $("btOut").innerHTML = '<p class="note">Считаю…</p>';
+  $("btOut").innerHTML = `<p class="note">${T("test.running", { game: g.title, n: last })}</p>`;
   setTimeout(() => {
-    const rows = L.backtest(game, g.pick, g.draws, Object.keys(L.STRATEGIES), last);
+    const rows = L.backtest(game, g.pick, g.draws, L.STRATEGIES, last);
     const exp = rows[0].expected, odd = rows.filter((r) => Math.abs(r.z) > 3);
     const best = rows.reduce((a, b) => (b.avg > a.avg ? b : a));
-    $("btOut").innerHTML = `<table><tr><th>Способ</th><th>Совпало в ср.</th><th>3+</th><th>4+</th></tr>` +
-      rows.map((r) => `<tr><td>${L.STRATEGIES[r.strategy]}</td><td>${r.avg.toFixed(3)}</td><td>${r.hits3}</td><td>${r.hits4}</td></tr>`).join("") +
-      `</table><p><b>${g.title}, ${last} тиражей. У случайного билета ожидается ${exp.toFixed(3)} совпадения (обычный разброс ±${(3 * rows[0].se).toFixed(3)}). Лучше всех в этот раз: «${L.STRATEGIES[best.strategy]}» — ${best.avg.toFixed(3)}. ` +
-      (odd.length ? `Разница у ${odd.map((r) => "«" + L.STRATEGIES[r.strategy] + "»").join(", ")} больше обычного разброса — запустите ещё раз: повторится — стоит изучить, нет — была случайность.`
-                  : "Все способы в пределах обычного случайного разброса: ни один не угадывает лучше случайного.") + "</b></p>";
+    const [qa, qb] = L.lang() === "en" ? ["“", "”"] : ["«", "»"];
+    $("btOut").innerHTML = `<table><tr><th>${T("col.strategy")}</th><th>${T("col.avg")}</th><th>3+</th><th>4+</th></tr>` +
+      rows.map((r) => `<tr><td>${L.strategyName(r.strategy)}</td><td>${L.num(r.avg, 3)}</td><td>${r.hits3}</td><td>${r.hits4}</td></tr>`).join("") +
+      `</table><p><b>${T("test.head", { game: g.title, n: last, exp: L.num(exp, 3), se: L.num(3 * rows[0].se, 3), best: L.strategyName(best.strategy), avg: L.num(best.avg, 3) })}` +
+      (odd.length ? T("test.odd", { list: odd.map((r) => qa + L.strategyName(r.strategy) + qb).join(", ") }) : T("test.ok")) + "</b></p>";
   }, 30);
 }
 
@@ -515,7 +579,9 @@ function newDrawBanner() {
     if (seen[key] && last > seen[key]) {
       const mine = tickets.filter((t) => t.game === key && t.draw > seen[key] && t.draw <= last);
       const rs = mine.map((t) => L.checkTicket(key, g.pick, t.numbers, t.draw, g.draws, g.extras));
-      msgs.push(`Вышел тираж ${g.title} ${L.ru(last)}` + (mine.length ? `: ваших билетов ${mine.length}, лучший ${Math.max(...rs.map((r) => r.matches))} из ${g.pick}, с призом ${rs.filter((r) => r.prize).length}.` : "."));
+      msgs.push(T("banner.new", { game: g.title, d: D(last) }) + (mine.length
+        ? T("banner.mine", { n: mine.length, best: Math.max(...rs.map((r) => r.matches)), pick: g.pick, p: rs.filter((r) => r.prize).length })
+        : "."));
     }
     seen[key] = last;
   }
@@ -528,24 +594,35 @@ function render() {
   if (!DATA) return;
   document.querySelectorAll("#gameSeg button").forEach((b) => b.classList.toggle("on", b.dataset.g === game));
   const per = $("period");
-  const opts = Object.entries(PERIODS).filter(([k]) => k !== "r52" || game === "LOTTOMAX");
-  const cur = per.value;
-  per.innerHTML = opts.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
-  per.value = opts.some(([k]) => k === cur) ? cur : "all";
+  const opts = PERIODS.filter((k) => k !== "max52" || game === "LOTTOMAX");
+  const cur = per.value || settings.period || "all";
+  per.innerHTML = opts.map((k) => `<option value="${k}">${T("period." + k)}</option>`).join("");
+  per.value = opts.includes(cur) ? cur : "all";
   renderHome(); renderMine(); renderGrid(); renderOdds(); renderMarks();
   if (generated.length) renderGen();
 }
+function setLanguage(code) {
+  L.setLang(code); setSetting("lang", code);
+  document.documentElement.lang = code;
+  // разовые сообщения были на прежнем языке — убираем
+  for (const id of ["saveInfo", "manInfo", "banner"]) $(id).textContent = "";
+  $("banner").style.display = "none";
+  applyStatic(); showUpdated(); render();
+  if ($("btOut").innerHTML) $("btOut").innerHTML = "";
+}
 
 // ---------- события
-$("strategy").innerHTML = Object.entries(L.STRATEGIES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
-$("province").innerHTML = Object.keys(PROVINCES).map((p) => `<option>${p}</option>`).join("");
-if (settings.province in PROVINCES) $("province").value = settings.province;
+applyStatic();
+if (!settings.disclaimerOk) $("disclaimerCard").style.display = "";
+$("btnAccept").onclick = () => { setSetting("disclaimerOk", true); $("disclaimerCard").style.display = "none"; };
+$("strategy").onchange = () => setSetting("strategy", $("strategy").value);
 $("province").onchange = () => setSetting("province", $("province").value);
 $("avoidPop").checked = settings.avoidPop !== false;
 $("avoidPop").onchange = () => setSetting("avoidPop", $("avoidPop").checked);
 $("limit").value = settings.limit || 0;
 $("limit").onchange = () => { setSetting("limit", Math.max(0, Number($("limit").value) || 0)); renderMine(); };
-$("period").onchange = () => { renderGrid(); renderOdds(); };
+$("period").onchange = () => { setSetting("period", $("period").value); renderGrid(); renderOdds(); };
+$("langBtns").onclick = (e) => { const b = e.target.closest("button"); if (b) setLanguage(b.dataset.lang); };
 
 $("gameSeg").onclick = (e) => {
   const b = e.target.closest("button"); if (!b) return;
@@ -566,30 +643,30 @@ $("btnAll").onclick = () => { marked = new Set(generated.map((_, i) => i)); rend
 $("btnCopy").onclick = () => {
   const txt = generated.map((t, i) => `${i + 1}. ${t.join(" ")}`).join("\n");
   (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
-    () => { $("saveInfo").textContent = "Скопировано."; }, () => { prompt("Скопируйте:", txt); });
+    () => { $("saveInfo").textContent = T("gen.copied"); }, () => { prompt(T("gen.copy_prompt"), txt); });
 };
 $("btnSave").onclick = () => {
-  if (!marked.size) { alert("Сначала поставьте галочки у купленных вариантов."); return; }
+  if (!marked.size) { alert(T("gen.need_marks_web")); return; }
   const draw = L.nextDraw(game, today());
   const n = addTickets(game, [...marked].sort((a, b) => a - b).map((i) => generated[i]), today(), draw);
-  $("saveInfo").textContent = `Сохранено ${n} на тираж ${L.ru(draw)}. Они во вкладке «Мои» и больше не будут предлагаться.`;
-  if (overLimit()) alert(`Лимит недели превышен: потрачено ${money(L.moneySummary(tickets, today()).week)}.`);
+  $("saveInfo").textContent = T("gen.saved_web", { n, d: D(draw) });
+  if (overLimit()) alert(T("limit.over", { spent: L.num(L.moneySummary(tickets, today()).week), lim: settings.limit }));
   render();
 };
 $("btnShop").onclick = () => {
-  if (overLimit() && !confirm(`На этой неделе уже потрачено ${money(L.moneySummary(tickets, today()).week)} — это не меньше лимита ${settings.limit} $. Всё равно открыть сайт?`)) return;
-  window.open(PROVINCES[$("province").value], "_blank");   // в приложении откроется Safari
+  if (overLimit() && !confirm(T("shop.over_limit", { spent: L.num(L.moneySummary(tickets, today()).week), lim: settings.limit }))) return;
+  window.open(PROVINCES[$("province").value] || PROVINCES.ON, "_blank");   // в приложении откроется Safari
 };
 $("mineList").onclick = (e) => {
   const del = e.target.dataset.del, won = e.target.dataset.won;
-  if (del !== undefined && confirm("Удалить билет " + tickets[del].numbers.join(" ") + "?")) {
+  if (del !== undefined && confirm(T("mine.confirm_delete", { nums: tickets[del].numbers.join(" ") }))) {
     tickets.splice(Number(del), 1); save("lotto.tickets", tickets); render();
   }
   if (won !== undefined) {
-    const v = prompt("Сколько выиграл этот билет, $? (сумму смотрите на сайте лотереи)", tickets[won].won || 0);
+    const v = prompt(T("mine.won_prompt"), tickets[won].won || 0);
     if (v === null) return;
     const x = Number(String(v).replace(",", "."));
-    if (!(x >= 0)) { alert("Нужно число 0 или больше."); return; }
+    if (!(x >= 0)) { alert(T("mine.won_bad")); return; }
     tickets[won].won = Math.round(x * 100) / 100; save("lotto.tickets", tickets); render();
   }
 };
@@ -597,9 +674,9 @@ $("manDate").value = L.nextDraw(game, today());
 $("btnMan").onclick = () => {
   const day = $("manDate").value;
   try {
-    const nums = L.parseNumbers($("manNums").value, game, G().pick, day);
+    const nums = L.parseNumbers($("manNums").value, game, G().pick, day, G().title);
     const n = addTickets(game, [nums], today(), day);
-    $("manInfo").textContent = n ? "Добавлен." : "Такой билет на этот тираж уже есть.";
+    $("manInfo").textContent = n ? T("man.added") : T("man.dup");
     $("manNums").value = ""; render();
   } catch (err) { $("manInfo").textContent = err.message; }
 };
@@ -615,7 +692,7 @@ $("btnExport").onclick = async () => {
   try {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(file); a.download = "my_tickets.json"; a.click();
-  } catch (e) { prompt("Скопируйте и сохраните:", text); }
+  } catch (e) { prompt(T("gen.copy_prompt"), text); }
 };
 $("btnImport").onclick = () => $("importFile").click();
 $("importFile").onchange = async (e) => {
@@ -625,18 +702,18 @@ $("importFile").onchange = async (e) => {
     for (const t of arr) if (t && t.game && t.numbers && t.draw) {
       const before = tickets.length;
       addTickets(t.game, [t.numbers], t.bought || today(), t.draw);
-      if (tickets.length > before) { Object.assign(tickets[tickets.length - 1], { cost: t.cost ?? L.LINE_PRICE[t.game], won: t.won }); n++; }
+      if (tickets.length > before) { Object.assign(tickets[tickets.length - 1], { cost: t.cost ?? L.linePrice(t.game, t.draw), won: t.won }); n++; }
     }
     save("lotto.tickets", tickets); render();
-    alert(`Добавлено билетов: ${n}`);
-  } catch (err) { alert("Не удалось прочитать файл: " + err.message); }
+    alert(T("mine.imported", { n }));
+  } catch (err) { alert(T("mine.read_err", { e: err.message })); }
 };
 $("grid").onclick = (e) => {
   const c = e.target.closest(".cell"); if (!c) return;
   const n = Number(c.dataset.n);
   if (fixed.has(n)) { fixed.delete(n); excluded.add(n); }
   else if (excluded.has(n)) excluded.delete(n);
-  else if (fixed.size >= G().pick) { alert(`В билете ${G().pick} чисел — больше закрепить нельзя.`); return; }
+  else if (fixed.size >= G().pick) { alert(T("left.max_pinned", { pick: G().pick })); return; }
   else fixed.add(n);
   renderGrid(); renderMarks();
 };
