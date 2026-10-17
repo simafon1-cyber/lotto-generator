@@ -23,17 +23,35 @@ jobs:
           body: |
             Mac на Apple M1/M2/M3/M4 → **LottoGenerator-mac-apple-silicon.zip**
             Mac на Intel → **LottoGenerator-mac-intel.zip**
+            iPhone (готовый проект Xcode для TestFlight) → **LottoGenerator-iPhone-Xcode.zip**, инструкция внутри.
             Дальше программа обновляется сама: кнопка «⬆ Обновить программу».
             Сборка из коммита ${{ github.sha }}.
 
-  ios-check:
-    runs-on: macos-14
+  # Готовый проект Xcode для iPhone (TestFlight): собирается, проверяется
+  # сборкой для настоящего iPhone и выкладывается zip рядом с Mac-версиями.
+  ios:
+    needs: prepare
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Проверка кода iPhone-оболочки
+      - run: brew install xcodegen
+      - name: Собрать готовый проект
+        run: BUILD_NUMBER="${{ github.run_number }}" ios/make_project.sh "$RUNNER_TEMP/LottoGenerator"
+      - name: Упаковать проект (до сборки — без лишних файлов)
+        run: ditto -c -k --keepParent "$RUNNER_TEMP/LottoGenerator" LottoGenerator-iPhone-Xcode.zip
+      - name: Проверка — сборка для iPhone без подписи
+        working-directory: ${{ runner.temp }}/LottoGenerator
         run: |
-          xcrun --sdk iphoneos swiftc -typecheck \
-            -target arm64-apple-ios16.0 ios/ContentView.swift ios/LottoGeneratorApp.swift
+          xcodebuild -project LottoGenerator.xcodeproj -scheme LottoGenerator \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/a.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/dd" CODE_SIGNING_ALLOWED=NO archive | tail -3
+          test -f "$RUNNER_TEMP/a.xcarchive/Products/Applications/LottoGenerator.app/web/index.html"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lottery-latest
+          files: LottoGenerator-iPhone-Xcode.zip
+          overwrite_files: true
 
   build:
     needs: prepare

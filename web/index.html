@@ -359,6 +359,11 @@ function startLang() {
 }
 L.setStrings(window.I18N, startLang());
 document.documentElement.lang = L.lang();
+// В приложении для iPhone: сообщить язык, чтобы кнопки окон («Отмена», «Да») совпадали.
+function tellApp(code) {
+  try { window.webkit.messageHandlers.lang.postMessage(code); } catch (e) { /* не в приложении */ }
+}
+tellApp(L.lang());
 
 let DATA = null, game = settings.game || "LOTTOMAX", generated = [], marked = new Set();
 const fixed = new Set(), excluded = new Set();
@@ -398,9 +403,10 @@ async function loadData(force) {
 }
 function showUpdated() {
   if (!DATA) return;
+  // Дата — в том же виде, что везде в программе (fr: 17/10/2026, а не 2026-10-17).
   const u = new Date(DATA.updated);
-  const loc = { ru: "ru-RU", en: "en-CA", fr: "fr-CA" }[L.lang()];
-  $("updated").textContent = T("web.updated", { when: u.toLocaleString(loc, { dateStyle: "short", timeStyle: "short" }) });
+  const hm = String(u.getHours()).padStart(2, "0") + ":" + String(u.getMinutes()).padStart(2, "0");
+  $("updated").textContent = T("web.updated", { when: L.fmtDate(L.iso(u)) + ", " + hm });
 }
 
 function periodDraws() {
@@ -604,6 +610,7 @@ function render() {
 function setLanguage(code) {
   L.setLang(code); setSetting("lang", code);
   document.documentElement.lang = code;
+  tellApp(code);
   // разовые сообщения были на прежнем языке — убираем
   for (const id of ["saveInfo", "manInfo", "banner"]) $(id).textContent = "";
   $("banner").style.display = "none";
