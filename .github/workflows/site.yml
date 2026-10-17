@@ -1,0 +1,43 @@
+# Сайт для iPhone: веб-приложение + свежие тиражи (data.json) каждые 3 часа.
+# Адрес: https://simafon1-cyber.github.io/lotto-generator/
+name: Site
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 */3 * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Тесты (Python и сверка с JavaScript)
+        run: python tests/test_lotto.py && python tests/test_web_core.py
+      - name: Скачать историю тиражей (BCLC) со сверкой всех строк
+        run: python lotto_data.py data
+      - name: Собрать сайт
+        run: |
+          mkdir -p site
+          cp web/* site/
+          python build_web_data.py data site/data.json
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: deploy
+        uses: actions/deploy-pages@v4

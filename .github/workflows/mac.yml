@@ -1,0 +1,79 @@
+# Сборка Lotto Generator для Mac + проверка кода для iPhone.
+# Репозиторий: simafon1-cyber/lotto-generator (открытый, только эта программа).
+name: Mac
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ["README.md", "docs/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lottery-latest
+          target_commitish: ${{ github.sha }}
+          name: Lotto Generator для Mac
+          body: |
+            Mac на Apple M1/M2/M3/M4 → **LottoGenerator-mac-apple-silicon.zip**
+            Mac на Intel → **LottoGenerator-mac-intel.zip**
+            Дальше программа обновляется сама: кнопка «⬆ Обновить программу».
+            Сборка из коммита ${{ github.sha }}.
+
+  ios-check:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверка кода iPhone-оболочки
+        run: |
+          xcrun --sdk iphoneos swiftc -typecheck \
+            -target arm64-apple-ios16.0 ios/ContentView.swift ios/LottoGeneratorApp.swift
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-14, arch: apple-silicon }
+          - { runner: macos-15-intel, arch: intel }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install --upgrade pip pyinstaller==6.11.1 certifi
+      - name: Тесты
+        run: python tests/test_lotto.py && python tests/test_web_core.py
+      - name: Скачать историю тиражей (BCLC)
+        run: python lotto_data.py data
+      - run: echo "${{ github.sha }}" > data/version.txt
+      - name: Собрать .app
+        run: |
+          pyinstaller --noconfirm --windowed --name "Lotto Generator" \
+            --osx-bundle-identifier com.personal.lottogenerator \
+            --add-data "data:data" --hidden-import certifi lotto_app.py
+      - name: Самопроверка собранного приложения
+        run: |
+          LOTTO_SELFTEST=1 EXPECT_VERSION="${{ github.sha }}" \
+            "dist/Lotto Generator.app/Contents/MacOS/Lotto Generator"
+      - run: ditto -c -k --keepParent "dist/Lotto Generator.app" "LottoGenerator-mac-${{ matrix.arch }}.zip"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lottery-latest
+          files: LottoGenerator-mac-${{ matrix.arch }}.zip
+          overwrite_files: true
+      # .sha — ПОСЛЕ zip: программа предлагает обновление, только увидев новый .sha.
+      - run: echo "${{ github.sha }}" > "LottoGenerator-mac-${{ matrix.arch }}.sha"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lottery-latest
+          files: LottoGenerator-mac-${{ matrix.arch }}.sha
+          overwrite_files: true

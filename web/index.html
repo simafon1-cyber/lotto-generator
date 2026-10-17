@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lotto Generator</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lotto">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f5a30">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root {
+  --felt-1: #1f8a4c; --felt-2: #0f5a30; --felt-3: #0a3f22;
+  --card: #fffdf6; --ink: #13261b; --muted: #5b6d61; --line: #e7dfc6;
+  --gold-1: #ffe9a3; --gold-2: #f2c14e; --gold-3: #c8901a;
+  --red-1: #ff7a6b; --red-2: #d7262b; --red-3: #8f1215;
+  --green-1: #5fe39b; --green-2: #1ea65a; --green-3: #0d6b37;
+  --win: #e5f7e9; --chip: #f3eedc; --onfelt: #f4fff7; --onfelt-muted: #c8ebd4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --felt-1: #146b3a; --felt-2: #0b4425; --felt-3: #062a17;
+    --card: #10251a; --ink: #eaf5ee; --muted: #9cc2aa; --line: #23422f;
+    --win: #1c4a2c; --chip: #1a3526;
+  }
+}
+:root[data-theme="dark"] {
+  --felt-1: #146b3a; --felt-2: #0b4425; --felt-3: #062a17;
+  --card: #10251a; --ink: #eaf5ee; --muted: #9cc2aa; --line: #23422f;
+  --win: #1c4a2c; --chip: #1a3526;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html { min-height: 100%; background-color: var(--felt-3);
+  /* сукно лотерейного стола: свет сверху + мелкая фактура, на всю высоту */
+  background-image:
+    radial-gradient(ellipse 120% 40% at 50% 0, rgba(255,255,255,.18), transparent 70%),
+    repeating-linear-gradient(45deg, rgba(255,255,255,.025) 0 2px, transparent 2px 6px),
+    linear-gradient(180deg, var(--felt-1), var(--felt-2) 40%, var(--felt-3)); }
+body {
+  margin: 0; color: var(--ink); min-height: 100vh; background: transparent;
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", Roboto, sans-serif;
+  padding: env(safe-area-inset-top) 0 calc(84px + env(safe-area-inset-bottom));
+}
+header { padding: 16px 16px 6px; text-align: center; color: var(--onfelt); }
+.logo { display: inline-flex; gap: 6px; margin-bottom: 4px; }
+.logo span { width: 26px; height: 26px; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; font-weight: 800; font-size: 12px; color: #fff;
+  box-shadow: inset -3px -4px 6px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.35); }
+.logo span:nth-child(1) { background: radial-gradient(circle at 32% 28%, var(--red-1), var(--red-2) 55%, var(--red-3)); }
+.logo span:nth-child(2) { background: radial-gradient(circle at 32% 28%, var(--gold-1), var(--gold-2) 55%, var(--gold-3)); color: #4a3200; }
+.logo span:nth-child(3) { background: radial-gradient(circle at 32% 28%, #8fd0ff, #2d7fd3 55%, #134a86); }
+h1 { margin: 0; font-size: 26px; font-weight: 900; letter-spacing: .5px;
+  background: linear-gradient(180deg, #fff6d0, var(--gold-2) 60%, var(--gold-3));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 2px 0 rgba(0,0,0,.08); filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+.sub { color: var(--onfelt-muted); font-size: 13px; }
+main { padding: 0 16px; max-width: 720px; margin: 0 auto; }
+section { display: none; } section.on { display: block; animation: fade .25s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.card { background: var(--card); border-radius: 18px; padding: 16px; margin: 14px 0;
+  border: 1px solid rgba(242,193,78,.55);
+  box-shadow: 0 10px 24px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.6); }
+.card h2 { font-size: 18px; margin: 0 0 10px; font-weight: 800; }
+.card.draw { position: relative; overflow: hidden; }
+.card.draw::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 5px;
+  background: linear-gradient(90deg, var(--gold-3), var(--gold-1), var(--gold-3)); }
+
+/* Лотерейные шары: белые, глянцевые, с цветным кольцом */
+.balls { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.ball { width: 40px; height: 40px; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; font-weight: 900; font-size: 16px;
+  color: #13261b; font-variant-numeric: tabular-nums; position: relative;
+  background: radial-gradient(circle at 34% 28%, #ffffff 0 22%, #f1f1ea 45%, #c9c9bd 100%);
+  box-shadow: 0 3px 6px rgba(0,0,0,.35), inset 0 0 0 3px var(--green-2); }
+.ball.b { color: #fff; box-shadow: 0 3px 6px rgba(0,0,0,.35);
+  background: radial-gradient(circle at 34% 28%, var(--red-1), var(--red-2) 55%, var(--red-3)); }
+.ball.hit { color: #3b2600; box-shadow: 0 3px 8px rgba(0,0,0,.4), 0 0 0 3px rgba(255,233,163,.6);
+  background: radial-gradient(circle at 34% 28%, var(--gold-1), var(--gold-2) 55%, var(--gold-3)); }
+
+/* Кнопки — выпуклые, как на лотерейном терминале */
+.btn { display: block; width: 100%; border: 0; border-radius: 16px; padding: 16px 14px;
+  font-family: inherit; font-weight: 900; font-size: 18px; line-height: 1.1;
+  letter-spacing: .3px; margin: 10px 0; cursor: pointer;
+  color: #3b2600; text-shadow: 0 1px 0 rgba(255,255,255,.45);
+  background: linear-gradient(180deg, var(--gold-1), var(--gold-2) 55%, var(--gold-3));
+  box-shadow: 0 5px 0 #8a5d08, 0 10px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.8);
+  transition: transform .06s ease, box-shadow .06s ease; }
+.btn:active { transform: translateY(4px);
+  box-shadow: 0 1px 0 #8a5d08, 0 4px 8px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.6); }
+.btn.alt { color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.35);
+  background: linear-gradient(180deg, var(--red-1), var(--red-2) 55%, var(--red-3));
+  box-shadow: 0 5px 0 #6d0b0e, 0 10px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.4); }
+.btn.alt:active { box-shadow: 0 1px 0 #6d0b0e, 0 4px 8px rgba(0,0,0,.3); }
+.btn.go { color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.3);
+  background: linear-gradient(180deg, var(--green-1), var(--green-2) 55%, var(--green-3));
+  box-shadow: 0 5px 0 #08431f, 0 10px 18px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.5); }
+.btn.go:active { box-shadow: 0 1px 0 #08431f, 0 4px 8px rgba(0,0,0,.3); }
+.btn.ghost { font-weight: 800; font-size: 15px; padding: 11px; color: var(--ink); text-shadow: none;
+  background: linear-gradient(180deg, #fffaf0, var(--chip)); border: 1px solid var(--line);
+  box-shadow: 0 3px 0 var(--line), 0 4px 8px rgba(0,0,0,.08); }
+.btn.ghost:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--line); }
+.big-actions { margin: 6px 0 2px; }
+
+button, select, input { font: inherit; color: var(--ink); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row > * { flex: 1 1 140px; }
+select, input[type=text], input[type=number], input[type=date] { width: 100%; padding: 12px;
+  border-radius: 12px; border: 1px solid var(--line); background: #fff; color: #13261b;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.08); margin-top: 4px; }
+label { font-weight: 600; font-size: 14px; }
+label.chk { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-weight: 500; }
+label.chk input { width: 24px; height: 24px; flex: none; margin-top: 1px; accent-color: var(--green-2); }
+.ticket { display: flex; gap: 12px; align-items: center; padding: 12px 0;
+  border-top: 1px dashed var(--line); }
+.ticket:first-child { border-top: 0; }
+.ticket input { width: 28px; height: 28px; flex: none; accent-color: var(--green-2); }
+.ticket .nums { display: flex; gap: 5px; flex-wrap: wrap; }
+.ticket .nums span { width: 32px; height: 32px; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; font-weight: 800; font-size: 14px;
+  background: radial-gradient(circle at 34% 28%, #fff 0 22%, #f1f1ea 45%, #cfcfc3);
+  box-shadow: 0 2px 4px rgba(0,0,0,.3), inset 0 0 0 2px var(--green-2); color: #13261b; }
+.ticket .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.mine.win { background: var(--win); border-radius: 14px; padding: 12px; border: 1px solid var(--green-2); }
+.money { color: #8a5d08; font-size: 14px; font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; }
+.cell { aspect-ratio: 1; border-radius: 50%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; font-weight: 900; color: #fff; position: relative;
+  text-shadow: 0 1px 2px rgba(0,0,0,.65), 0 0 1px rgba(0,0,0,.8);
+  box-shadow: 0 3px 5px rgba(0,0,0,.35), inset -3px -4px 8px rgba(0,0,0,.18); user-select: none; }
+.cell::after { content: ""; position: absolute; top: 12%; left: 22%; width: 30%; height: 22%;
+  border-radius: 50%; background: rgba(255,255,255,.55); filter: blur(1px); }
+.cell small { font-weight: 600; font-size: 10px; }
+.cell.fx { outline: 3px solid var(--gold-2); outline-offset: 2px; }
+.cell.ex { background: #9aa3ad !important; opacity: .55; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+td, th { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+td:first-child, th:first-child { text-align: left; }
+th { font-size: 12px; color: var(--muted); }
+.note { color: var(--muted); font-size: 13px; }
+.banner { display: none; margin: 14px 0; padding: 14px; border-radius: 16px; font-weight: 700;
+  color: #3b2600; background: linear-gradient(180deg, var(--gold-1), var(--gold-2));
+  box-shadow: 0 6px 16px rgba(0,0,0,.3); }
+
+/* Выбор игры — как два билета */
+.seg { display: flex; gap: 8px; padding: 4px; border-radius: 16px; background: rgba(0,0,0,.22);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.35); }
+.seg button { flex: 1; border: 0; border-radius: 12px; padding: 11px; font-weight: 800;
+  background: none; color: var(--onfelt-muted); }
+.seg button.on { color: #3b2600; background: linear-gradient(180deg, var(--gold-1), var(--gold-2));
+  box-shadow: 0 3px 8px rgba(0,0,0,.35); }
+
+nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; z-index: 5;
+  padding: 6px 4px env(safe-area-inset-bottom);
+  background: linear-gradient(180deg, rgba(10,63,34,.92), rgba(6,42,23,.98));
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-top: 2px solid var(--gold-3); }
+nav button { flex: 1; border: 0; background: none; padding: 6px 2px 8px; font-size: 11px;
+  color: var(--onfelt-muted); border-radius: 12px; }
+nav button b { display: block; font-size: 22px; line-height: 1.1; }
+nav button.on { color: var(--gold-1); font-weight: 800; background: rgba(255,233,163,.12); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span>7</span><span>52</span><span>49</span></div>
+  <h1>Lotto Generator</h1>
+  <div class="sub" id="updated">Загружаю тиражи…</div>
+</header>
+<main>
+  <div class="seg" id="gameSeg">
+    <button data-g="LOTTOMAX" class="on">Lotto Max</button>
+    <button data-g="649">Lotto 6/49</button>
+  </div>
+  <div class="banner" id="banner"></div>
+
+  <!-- Главная -->
+  <section id="s-home" class="on">
+    <div id="lastCards"></div>
+    <div class="big-actions">
+      <button class="btn" id="btnGen10">🎲 Сгенерировать 10 вариантов</button>
+      <button class="btn alt" id="btnShop">🛒 Открыть сайт для покупки</button>
+    </div>
+    <div class="card">
+      <label>Где покупаете
+        <select id="province"></select></label>
+      <p class="note">Программа ничего не покупает и не входит в ваш аккаунт: откроет
+      официальный сайт, а числа вы вписываете сами.</p>
+    </div>
+  </section>
+
+  <!-- Генератор -->
+  <section id="s-gen">
+    <div class="card">
+      <label>Способ <select id="strategy"></select></label>
+      <label style="display:block;margin-top:8px">Период <select id="period"></select></label>
+      <div class="row">
+        <label>Сколько <input type="number" id="count" min="1" max="50" value="10"></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="avoidPop" checked>
+        <span>Избегать комбинаций, которые часто выбирают люди (дни рождения, ряды,
+        «лесенки») — шанс тот же, но выигрыш реже делить</span></label>
+      <div class="note" id="marks"></div>
+      <button class="btn" id="btnGen">Сгенерировать</button>
+    </div>
+    <div class="card" id="genCard" style="display:none">
+      <h2>Варианты — отметьте купленные</h2>
+      <div id="genList"></div>
+      <button class="btn go" id="btnSave">✅ Сохранить купленные</button>
+      <div class="row">
+        <button class="btn ghost" id="btnAll">Отметить все</button>
+        <button class="btn ghost" id="btnCopy">Копировать</button>
+      </div>
+      <div class="note" id="saveInfo"></div>
+    </div>
+  </section>
+
+  <!-- Мои билеты -->
+  <section id="s-mine">
+    <div class="card">
+      <h2 id="mineTitle">Мои билеты</h2>
+      <div class="money" id="money"></div>
+      <div class="row" style="margin-top:8px">
+        <label>Лимит в неделю, $ (0 — нет) <input type="number" id="limit" min="0" step="5"></label>
+      </div>
+    </div>
+    <div class="card"><div id="mineList"></div></div>
+    <div class="card">
+      <h2>Добавить купленный билет</h2>
+      <input type="text" id="manNums" inputmode="numeric" placeholder="Числа через пробел">
+      <div class="row" style="margin-top:8px">
+        <label>Дата тиража <input type="date" id="manDate"></label>
+      </div>
+      <button class="btn ghost" id="btnMan">Добавить</button>
+      <div class="note" id="manInfo"></div>
+    </div>
+    <div class="card">
+      <h2>Перенос между Mac и iPhone</h2>
+      <p class="note">Формат файла тот же, что у программы для Mac (my_tickets.json).</p>
+      <div class="row">
+        <button class="btn ghost" id="btnExport">Сохранить файл</button>
+        <button class="btn ghost" id="btnImport">Загрузить файл</button>
+      </div>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+  </section>
+
+  <!-- Частоты -->
+  <section id="s-nums">
+    <div class="card">
+      <h2>Сколько раз выпадало каждое число</h2>
+      <p class="note">Красное — чаще, синее — реже. Нажатие: закрепить (войдёт в каждый
+      билет) → исключить → обычное.</p>
+      <div class="grid" id="grid"></div>
+    </div>
+  </section>
+
+  <!-- Проверка на истории -->
+  <section id="s-test">
+    <div class="card">
+      <h2>Проверка на истории</h2>
+      <p class="note">Для каждого из последних тиражей частоты считаются только по
+      тиражам до него, каждым способом делается 10 билетов, и считается, сколько чисел
+      совпало. Если бы «частые» числа помогали, у них совпадало бы больше.</p>
+      <div class="row">
+        <label>Тиражей <select id="btLast"><option>100</option><option selected>300</option>
+          <option>600</option></select></label>
+      </div>
+      <button class="btn" id="btnTest">Запустить проверку</button>
+      <div id="btOut"></div>
+    </div>
+  </section>
+
+  <!-- Честно о шансах -->
+  <section id="s-odds"><div class="card" id="odds"></div></section>
+</main>
+
+<nav id="nav">
+  <button data-s="home" class="on"><b>🏠</b>Главная</button>
+  <button data-s="gen"><b>🎲</b>Варианты</button>
+  <button data-s="mine"><b>🎟️</b>Мои</button>
+  <button data-s="nums"><b>🔢</b>Числа</button>
+  <button data-s="test"><b>🧪</b>Проверка</button>
+  <button data-s="odds"><b>ℹ️</b>Шансы</button>
+</nav>
+
+<script src="lotto.js"></script>
+<script>
+"use strict";
+const L = window.Lotto;
+const $ = (id) => document.getElementById(id);
+const PROVINCES = {
+  "Онтарио (OLG)": "https://www.olg.ca/",
+  "Британская Колумбия (PlayNow)": "https://www.playnow.com/",
+  "Манитоба (PlayNow)": "https://www.playnow.com/",
+  "Альберта (PlayAlberta)": "https://www.playalberta.ca/",
+  "Квебек (Loto-Québec)": "https://loteries.lotoquebec.com/",
+  "Атлантические провинции (ALC)": "https://www.alc.ca/",
+  "Саскачеван (WCLC, онлайн-продаж нет)": "https://www.wclc.com/",
+};
+// Внутри приложения из Xcode страница открыта из файла — тиражи берём с
+// открытой страницы GitHub. В браузере — рядом лежащий data.json.
+const REMOTE_DATA = "https://simafon1-cyber.github.io/lotto-generator/data.json";
+const DATA_URL = location.protocol === "https:" || location.protocol === "http:" ? "data.json" : REMOTE_DATA;
+const PERIODS = { all: "Всё время", y10: "Последние 10 лет", y5: "Последние 5 лет",
+  y1: "Последний год", n100: "Последние 100 тиражей", n50: "Последние 50 тиражей",
+  r52: "С 14.04.2026 (Lotto Max 1–52)" };
+
+// ---------- хранилище (может быть недоступно — тогда работаем без него)
+function load(key, dflt) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : dflt; }
+  catch (e) { return dflt; }
+}
+function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
+let settings = load("lotto.settings", {});
+let tickets = load("lotto.tickets", []);
+const setSetting = (k, v) => { settings[k] = v; save("lotto.settings", settings); };
+
+let DATA = null, game = settings.game || "LOTTOMAX", generated = [], marked = new Set();
+const fixed = new Set(), excluded = new Set();
+const today = () => L.iso(new Date());
+const G = () => DATA.games[game];
+const money = (x) => x.toFixed(2) + " $";
+
+// ---------- данные
+async function loadData(force) {
+  try {
+    const r = await fetch(DATA_URL + (force ? "?t=" + Date.now() : ""), { cache: force ? "reload" : "default" });
+    DATA = await r.json();
+    save("lotto.data", DATA);
+    const u = new Date(DATA.updated);
+    $("updated").textContent = "Тиражи обновлены: " + u.toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) +
+      " · обновляются сами каждые 3 часа";
+    render();
+    newDrawBanner();
+  } catch (e) {
+    const cached = load("lotto.data", null);       // без интернета — последние известные
+    if (cached && !DATA) { DATA = cached; render(); }
+    $("updated").textContent = "Нет связи — показаны тиражи, загруженные раньше. Проверьте интернет.";
+  }
+}
+
+function periodDraws() {
+  const d = G().draws, p = $("period").value || "all";
+  const t = new Date();
+  const since = (y) => { const x = new Date(t); x.setFullYear(x.getFullYear() - y); return L.iso(x); };
+  if (p === "y10") return d.filter((x) => x[0] >= since(10));
+  if (p === "y5") return d.filter((x) => x[0] >= since(5));
+  if (p === "y1") return d.filter((x) => x[0] >= since(1));
+  if (p === "n100") return d.slice(-100);
+  if (p === "n50") return d.slice(-50);
+  if (p === "r52") return d.filter((x) => x[0] >= L.MAX_52_FROM);
+  return d;
+}
+const stats = () => L.computeStats(game, G().pick, periodDraws());
+
+// ---------- главная
+function ballsHtml(nums, bonus, hits) {
+  const h = new Set(hits || []);
+  return '<div class="balls">' + nums.map((n) => `<span class="ball${h.has(n) ? " hit" : ""}">${n}</span>`).join("") +
+    (bonus != null ? `<span class="ball b" title="бонус">${bonus}</span>` : "") + "</div>";
+}
+function renderHome() {
+  let html = "";
+  for (const key of ["LOTTOMAX", "649"]) {
+    const g = DATA.games[key], last = g.draws[g.draws.length - 1];
+    const mine = tickets.filter((t) => t.game === key && t.draw === last[0]);
+    const wait = tickets.filter((t) => t.game === key && t.draw > last[0]).length;
+    let res = "Ваших билетов на этот тираж нет.";
+    if (mine.length) {
+      const rs = mine.map((t) => L.checkTicket(key, g.pick, t.numbers, last[0], g.draws, g.extras));
+      const best = Math.max(...rs.map((r) => r.matches));
+      const cash = rs.filter((r) => r.prize && r.prize !== "бесплатный билет").length;
+      const free = rs.filter((r) => r.prize === "бесплатный билет").length;
+      res = `Ваших билетов: ${mine.length} · лучший ${best} из ${g.pick} · денежных призов: ${cash} · бесплатных: ${free}`;
+    }
+    const nd = L.nextDraw(key, today());
+    html += `<div class="card draw"><h2>${g.title} · ${L.ru(last[0])}</h2>${ballsHtml(last[1], last[2])}
+      <div>${res}</div><div class="note">Следующий тираж: ${nd === today() ? "сегодня" : L.ru(nd)}, около 22:30 по Торонто${wait ? ` · ваших билетов ждут: ${wait}` : ""}</div></div>`;
+  }
+  $("lastCards").innerHTML = html;
+}
+
+// ---------- генератор
+function renderMarks() {
+  $("marks").textContent = (fixed.size || excluded.size)
+    ? `Закреплены: ${[...fixed].sort((a, b) => a - b).join(", ") || "нет"} · исключены: ${[...excluded].sort((a, b) => a - b).join(", ") || "нет"} (вкладка «Числа»)`
+    : "";
+}
+function doGenerate(n) {
+  const st = stats();
+  try {
+    generated = L.generate(st, $("strategy").value, n, {
+      fixed: [...fixed], excluded: [...excluded], avoidPopular: $("avoidPop").checked,
+      avoid: tickets.filter((t) => t.game === game).map((t) => t.numbers) });
+  } catch (e) { alert(e.message); return; }
+  marked = new Set();
+  $("saveInfo").textContent = generated.length < n ? "Новых вариантов меньше, чем просили: остальные уже куплены или похожи на популярные." : "";
+  renderGen();
+  $("genCard").style.display = "";
+}
+function renderGen() {
+  const g = G();
+  $("genList").innerHTML = generated.map((t, i) => {
+    let m3 = 0, m4 = 0;
+    const s = new Set(t);
+    for (const d of g.draws) { const m = d[1].filter((x) => s.has(x)).length; if (m >= 4) m4++; else if (m === 3) m3++; }
+    return `<label class="ticket"><input type="checkbox" data-i="${i}" ${marked.has(i) ? "checked" : ""}>
+      <div><div class="nums">${t.map((x) => `<span>${x}</span>`).join("")}</div>
+      <div class="meta">в истории совпало бы: 4+ — ${m4} раз, 3 — ${m3} раз</div></div></label>`;
+  }).join("");
+}
+
+// ---------- мои билеты
+function renderMine() {
+  const items = tickets.map((t, i) => [t, i]).reverse();
+  let waiting = 0, won = 0;
+  $("mineList").innerHTML = items.length ? items.map(([t, i]) => {
+    const g = DATA.games[t.game];
+    if (!g) return "";
+    const r = L.checkTicket(t.game, g.pick, t.numbers, t.draw, g.draws, g.extras);
+    if (!r.drawn) waiting++;
+    if (r.prize || r.maxmillions) won++;
+    const d = g.draws.find((x) => x[0] === t.draw);
+    return `<div class="ticket mine${r.prize ? " win" : ""}"><div style="flex:1">
+      <div class="meta">${g.title} · тираж ${L.ru(t.draw)} · куплен ${L.ru(t.bought)} · ${money(L.ticketCost(t))}${t.won ? " · выиграно " + money(Number(t.won)) : ""}</div>
+      ${ballsHtml(t.numbers, null, d ? d[1] : [])}
+      <div>${r.text}</div>
+      <div class="row" style="margin-top:6px"><button class="btn ghost" data-won="${i}">Записать выигрыш</button>
+      <button class="btn ghost" data-del="${i}">Удалить</button></div></div></div>`;
+  }).join("") : '<p class="note">Пока пусто. Отметьте купленные варианты галочками и нажмите «Сохранить купленные».</p>';
+  const m = L.moneySummary(tickets, today());
+  const lim = Number(settings.limit || 0);
+  $("mineTitle").textContent = `Мои билеты: ${tickets.length} · ждут тиража: ${waiting} · с призом: ${won}`;
+  $("money").textContent = `Потрачено: неделя ${money(m.week)}${lim ? " из " + lim + " $" : ""} · месяц ${money(m.month)} · всего ${money(m.total)} · выиграно ${money(m.won)} · итог ${(m.won - m.total >= 0 ? "+" : "") + money(m.won - m.total)}`;
+}
+function addTickets(gameKey, list, bought, draw) {
+  let n = 0;
+  const have = new Set(tickets.map((t) => t.game + "|" + t.numbers.join(",") + "|" + t.draw));
+  for (const nums of list) {
+    const k = gameKey + "|" + nums.join(",") + "|" + draw;
+    if (have.has(k)) continue;
+    have.add(k);
+    tickets.push({ game: gameKey, numbers: [...nums].sort((a, b) => a - b), bought, draw, cost: L.LINE_PRICE[gameKey] });
+    n++;
+  }
+  save("lotto.tickets", tickets);
+  return n;
+}
+function overLimit(extra = 0) {
+  const lim = Number(settings.limit || 0);
+  return lim > 0 && L.moneySummary(tickets, today()).week + extra > lim + 1e-9;
+}
+
+// ---------- частоты
+function heat(t) {
+  const a = [[0, [49, 99, 206]], [0.5, [240, 240, 240]], [1, [214, 48, 49]]];
+  for (let i = 0; i < 2; i++) if (t <= a[i + 1][0]) {
+    const k = (t - a[i][0]) / (a[i + 1][0] - a[i][0]);
+    const c = a[i][1].map((v, j) => Math.round(v + (a[i + 1][1][j] - v) * k));
+    return `rgb(${c.join(",")})`;
+  }
+  return "rgb(214,48,49)";
+}
+function renderGrid() {
+  const st = stats(), vals = Object.values(st.numbers).map((s) => s.count);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  $("grid").innerHTML = Object.values(st.numbers).map((s) => {
+    const t = hi > lo ? (s.count - lo) / (hi - lo) : 0.5;
+    const cls = fixed.has(s.number) ? " fx" : excluded.has(s.number) ? " ex" : "";
+    return `<div class="cell${cls}" data-n="${s.number}" style="background:${heat(t)}">${s.number}<small>${s.count}</small></div>`;
+  }).join("");
+}
+
+// ---------- шансы
+function renderOdds() {
+  const st = stats(), g = G();
+  const top = L.ranked(st).slice(0, 5), low = L.ranked(st, false).slice(0, 5);
+  const odds = L.comb(L.maxBall(game, today()), g.pick).toLocaleString("ru-RU");
+  $("odds").innerHTML = `<h2>Честно о шансах — ${g.title}</h2>
+    <p>Главный приз одной линией: <b>1 к ${odds}</b>${game === "LOTTOMAX" ? ". Одна игра за 6 $ — это 4 линии, то есть около 1 к " + Math.round(L.comb(52, 7) / 4).toLocaleString("ru-RU") + " на игру" : ""}. От выбора чисел это не зависит.</p>
+    <p>В выбранном периоде ${st.draws.length} тиражей; каждое число в среднем должно было выпасть около ${Math.round(st.expected)} раз.<br>
+    Чаще всех: ${top.map((s) => `${s.number} (${s.count})`).join(", ")}<br>
+    Реже всех: ${low.map((s) => `${s.number} (${s.count})`).join(", ")}</p>
+    <p>Проверка «похоже ли на чистую случайность» (хи-квадрат): вероятность такого разброса случайно ≈ ${Math.round(st.p * 100)}%. ${st.p >= 0.05 ? "Обычное дело для честной лотереи." : "Чуть больше обычного, но на будущие тиражи это не влияет."}</p>
+    <p>У шаров нет памяти: частые числа не «горячие», редкие не «должны» выпасть. Единственное, что реально влияет на деньги, — не выбирать то, что выбирают все (дни рождения, ряды), чтобы при выигрыше не делить джекпот.</p>
+    <p class="note">Суммы призов и число победителей в официальных данных BCLC не публикуются — сверяйте сумму на сайте лотереи.</p>`;
+}
+
+// ---------- проверка на истории
+function runTest() {
+  const g = G(), last = Math.min(Number($("btLast").value), g.draws.length - 1);
+  $("btOut").innerHTML = '<p class="note">Считаю…</p>';
+  setTimeout(() => {
+    const rows = L.backtest(game, g.pick, g.draws, Object.keys(L.STRATEGIES), last);
+    const exp = rows[0].expected, odd = rows.filter((r) => Math.abs(r.z) > 3);
+    const best = rows.reduce((a, b) => (b.avg > a.avg ? b : a));
+    $("btOut").innerHTML = `<table><tr><th>Способ</th><th>Совпало в ср.</th><th>3+</th><th>4+</th></tr>` +
+      rows.map((r) => `<tr><td>${L.STRATEGIES[r.strategy]}</td><td>${r.avg.toFixed(3)}</td><td>${r.hits3}</td><td>${r.hits4}</td></tr>`).join("") +
+      `</table><p><b>${g.title}, ${last} тиражей. У случайного билета ожидается ${exp.toFixed(3)} совпадения (обычный разброс ±${(3 * rows[0].se).toFixed(3)}). Лучше всех в этот раз: «${L.STRATEGIES[best.strategy]}» — ${best.avg.toFixed(3)}. ` +
+      (odd.length ? `Разница у ${odd.map((r) => "«" + L.STRATEGIES[r.strategy] + "»").join(", ")} больше обычного разброса — запустите ещё раз: повторится — стоит изучить, нет — была случайность.`
+                  : "Все способы в пределах обычного случайного разброса: ни один не угадывает лучше случайного.") + "</b></p>";
+  }, 30);
+}
+
+// ---------- баннер о новом тираже
+function newDrawBanner() {
+  const seen = settings.seen || {};
+  const msgs = [];
+  for (const key of ["LOTTOMAX", "649"]) {
+    const g = DATA.games[key], last = g.draws[g.draws.length - 1][0];
+    if (seen[key] && last > seen[key]) {
+      const mine = tickets.filter((t) => t.game === key && t.draw > seen[key] && t.draw <= last);
+      const rs = mine.map((t) => L.checkTicket(key, g.pick, t.numbers, t.draw, g.draws, g.extras));
+      msgs.push(`Вышел тираж ${g.title} ${L.ru(last)}` + (mine.length ? `: ваших билетов ${mine.length}, лучший ${Math.max(...rs.map((r) => r.matches))} из ${g.pick}, с призом ${rs.filter((r) => r.prize).length}.` : "."));
+    }
+    seen[key] = last;
+  }
+  setSetting("seen", seen);
+  if (msgs.length) { $("banner").textContent = msgs.join(" "); $("banner").style.display = "block"; }
+}
+
+// ---------- отрисовка
+function render() {
+  if (!DATA) return;
+  document.querySelectorAll("#gameSeg button").forEach((b) => b.classList.toggle("on", b.dataset.g === game));
+  const per = $("period");
+  const opts = Object.entries(PERIODS).filter(([k]) => k !== "r52" || game === "LOTTOMAX");
+  const cur = per.value;
+  per.innerHTML = opts.map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+  per.value = opts.some(([k]) => k === cur) ? cur : "all";
+  renderHome(); renderMine(); renderGrid(); renderOdds(); renderMarks();
+  if (generated.length) renderGen();
+}
+
+// ---------- события
+$("strategy").innerHTML = Object.entries(L.STRATEGIES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+$("province").innerHTML = Object.keys(PROVINCES).map((p) => `<option>${p}</option>`).join("");
+if (settings.province in PROVINCES) $("province").value = settings.province;
+$("province").onchange = () => setSetting("province", $("province").value);
+$("avoidPop").checked = settings.avoidPop !== false;
+$("avoidPop").onchange = () => setSetting("avoidPop", $("avoidPop").checked);
+$("limit").value = settings.limit || 0;
+$("limit").onchange = () => { setSetting("limit", Math.max(0, Number($("limit").value) || 0)); renderMine(); };
+$("period").onchange = () => { renderGrid(); renderOdds(); };
+
+$("gameSeg").onclick = (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  game = b.dataset.g; setSetting("game", game);
+  fixed.clear(); excluded.clear(); generated = []; $("genCard").style.display = "none";
+  render();
+};
+function show(s) {
+  document.querySelectorAll("section").forEach((x) => x.classList.toggle("on", x.id === "s-" + s));
+  document.querySelectorAll("#nav button").forEach((b) => b.classList.toggle("on", b.dataset.s === s));
+  window.scrollTo(0, 0);
+}
+$("nav").onclick = (e) => { const b = e.target.closest("button"); if (b) show(b.dataset.s); };
+$("btnGen10").onclick = () => { $("count").value = 10; doGenerate(10); show("gen"); };
+$("btnGen").onclick = () => doGenerate(Math.max(1, Math.min(50, Number($("count").value) || 10)));
+$("genList").onchange = (e) => { const i = Number(e.target.dataset.i); e.target.checked ? marked.add(i) : marked.delete(i); };
+$("btnAll").onclick = () => { marked = new Set(generated.map((_, i) => i)); renderGen(); };
+$("btnCopy").onclick = () => {
+  const txt = generated.map((t, i) => `${i + 1}. ${t.join(" ")}`).join("\n");
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+    () => { $("saveInfo").textContent = "Скопировано."; }, () => { prompt("Скопируйте:", txt); });
+};
+$("btnSave").onclick = () => {
+  if (!marked.size) { alert("Сначала поставьте галочки у купленных вариантов."); return; }
+  const draw = L.nextDraw(game, today());
+  const n = addTickets(game, [...marked].sort((a, b) => a - b).map((i) => generated[i]), today(), draw);
+  $("saveInfo").textContent = `Сохранено ${n} на тираж ${L.ru(draw)}. Они во вкладке «Мои» и больше не будут предлагаться.`;
+  if (overLimit()) alert(`Лимит недели превышен: потрачено ${money(L.moneySummary(tickets, today()).week)}.`);
+  render();
+};
+$("btnShop").onclick = () => {
+  if (overLimit() && !confirm(`На этой неделе уже потрачено ${money(L.moneySummary(tickets, today()).week)} — это не меньше лимита ${settings.limit} $. Всё равно открыть сайт?`)) return;
+  window.open(PROVINCES[$("province").value], "_blank");   // в приложении откроется Safari
+};
+$("mineList").onclick = (e) => {
+  const del = e.target.dataset.del, won = e.target.dataset.won;
+  if (del !== undefined && confirm("Удалить билет " + tickets[del].numbers.join(" ") + "?")) {
+    tickets.splice(Number(del), 1); save("lotto.tickets", tickets); render();
+  }
+  if (won !== undefined) {
+    const v = prompt("Сколько выиграл этот билет, $? (сумму смотрите на сайте лотереи)", tickets[won].won || 0);
+    if (v === null) return;
+    const x = Number(String(v).replace(",", "."));
+    if (!(x >= 0)) { alert("Нужно число 0 или больше."); return; }
+    tickets[won].won = Math.round(x * 100) / 100; save("lotto.tickets", tickets); render();
+  }
+};
+$("manDate").value = L.nextDraw(game, today());
+$("btnMan").onclick = () => {
+  const day = $("manDate").value;
+  try {
+    const nums = L.parseNumbers($("manNums").value, game, G().pick, day);
+    const n = addTickets(game, [nums], today(), day);
+    $("manInfo").textContent = n ? "Добавлен." : "Такой билет на этот тираж уже есть.";
+    $("manNums").value = ""; render();
+  } catch (err) { $("manInfo").textContent = err.message; }
+};
+$("btnExport").onclick = async () => {
+  const text = JSON.stringify(tickets, null, 1);
+  const file = new File([text], "my_tickets.json", { type: "application/json" });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: "my_tickets.json" });   // меню «Поделиться»
+      return;
+    }
+  } catch (e) { if (e.name === "AbortError") return; }
+  try {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file); a.download = "my_tickets.json"; a.click();
+  } catch (e) { prompt("Скопируйте и сохраните:", text); }
+};
+$("btnImport").onclick = () => $("importFile").click();
+$("importFile").onchange = async (e) => {
+  try {
+    const arr = JSON.parse(await e.target.files[0].text());
+    let n = 0;
+    for (const t of arr) if (t && t.game && t.numbers && t.draw) {
+      const before = tickets.length;
+      addTickets(t.game, [t.numbers], t.bought || today(), t.draw);
+      if (tickets.length > before) { Object.assign(tickets[tickets.length - 1], { cost: t.cost ?? L.LINE_PRICE[t.game], won: t.won }); n++; }
+    }
+    save("lotto.tickets", tickets); render();
+    alert(`Добавлено билетов: ${n}`);
+  } catch (err) { alert("Не удалось прочитать файл: " + err.message); }
+};
+$("grid").onclick = (e) => {
+  const c = e.target.closest(".cell"); if (!c) return;
+  const n = Number(c.dataset.n);
+  if (fixed.has(n)) { fixed.delete(n); excluded.add(n); }
+  else if (excluded.has(n)) excluded.delete(n);
+  else if (fixed.size >= G().pick) { alert(`В билете ${G().pick} чисел — больше закрепить нельзя.`); return; }
+  else fixed.add(n);
+  renderGrid(); renderMarks();
+};
+$("btnTest").onclick = runTest;
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadData(true); });
+loadData(false);
+</script>
+</body>
+</html>
